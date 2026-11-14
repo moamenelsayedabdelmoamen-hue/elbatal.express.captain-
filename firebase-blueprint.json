@@ -1,0 +1,145 @@
+{
+  "entities": {
+    "Captain": {
+      "title": "Captain",
+      "description": "Delivery captain profile and live operational telemetry in El-Batal Express.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID of the captain." },
+        "name": { "type": "string", "description": "Captain display name." },
+        "fullName": { "type": "string", "description": "Captain full legal name." },
+        "email": { "type": "string", "format": "email", "description": "Registered email address." },
+        "phone": { "type": "string", "description": "Normalized Egyptian phone number." },
+        "phoneNumber": { "type": "string", "description": "Normalized Egyptian phone number." },
+        "role": { "type": "string", "enum": ["captain", "driver"], "description": "System role." },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended", "blocked", "disabled"], "description": "Server-controlled moderation status." },
+        "presenceStatus": { "type": "string", "enum": ["available", "on_trip", "offline"], "description": "Live operational availability." },
+        "profileImagePath": { "type": "string", "description": "Firebase Storage path captains/{uid}/profile/profile.jpg." },
+        "idFrontImagePath": { "type": "string", "description": "Private Storage path captains/{uid}/documents/id_front.jpg." },
+        "idBackImagePath": { "type": "string", "description": "Private Storage path captains/{uid}/documents/id_back.jpg." },
+        "licenseImagePath": { "type": "string", "description": "Private Storage path captains/{uid}/documents/license.jpg." },
+        "idDocumentsComplete": { "type": "boolean", "description": "True only when both front and back National ID images are uploaded." },
+        "walletBalance": { "type": "number", "description": "Server-controlled wallet balance; strictly read-only for clients." },
+        "totalOrdersCount": { "type": "integer", "description": "Server-controlled completed deliveries counter." },
+        "rating": { "type": "number", "description": "Server-controlled captain rating." },
+        "isOnline": { "type": "boolean", "description": "Whether captain is currently online." },
+        "activeMerchantId": { "type": "string", "description": "Server-populated merchant UID for an active order, scoping profile image visibility." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["uid", "name", "phone", "role", "status"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Server-authoritative delivery order managed exclusively via Cloud Functions.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "description": "Human-readable order code." },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "searching",
+            "offered",
+            "accepted",
+            "arrived_at_merchant",
+            "at_store",
+            "picked_up",
+            "awaiting_merchant_confirmation",
+            "merchant_rejected",
+            "en_route",
+            "delivered",
+            "cancelled",
+            "expired"
+          ],
+          "description": "Server-managed lifecycle status."
+        },
+        "captainId": { "type": "string", "description": "Assigned captain UID." },
+        "offeredCaptainId": { "type": "string", "description": "Offered captain UID during 60s window." },
+        "merchantId": { "type": "string", "description": "Owning merchant/restaurant UID." },
+        "restaurantId": { "type": "string", "description": "Owning restaurant UID." },
+        "customerId": { "type": "string", "description": "Ordering customer UID." },
+        "receiptImagePath": { "type": "string", "description": "Firebase Storage path orders/{orderId}/receipts/{uniqueFileName}." },
+        "receiptUploadedBy": { "type": "string", "description": "Captain UID who uploaded the receipt." },
+        "receiptUploadedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when receipt was submitted." },
+        "deliveryFee": { "type": "number", "description": "Delivery fee in EGP." }
+      },
+      "required": ["status"]
+    },
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "Merchant store profile; modifiable only by the owning merchant or admin.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Store display name." },
+        "phone": { "type": "string", "description": "Store contact phone." },
+        "address": { "type": "string", "description": "Store pickup address." },
+        "isOpen": { "type": "boolean", "description": "Store open status." }
+      },
+      "required": ["name"]
+    },
+    "CaptainSchedule": {
+      "title": "CaptainSchedule",
+      "description": "Admin-assigned work shift schedule; read-only for the owning captain.",
+      "type": "object",
+      "properties": {
+        "captainId": { "type": "string", "description": "Captain UID." },
+        "dayOfWeek": { "type": "integer", "description": "Calendar day of week (1-7)." },
+        "startTime": { "type": "string", "description": "Shift start time HH:mm." },
+        "endTime": { "type": "string", "description": "Shift end time HH:mm." }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "Private customer profile isolated to owner and admin.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" }
+      }
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Trusted administrator registry managed server-side.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/captains/{captainId}": {
+      "schema": "Captain",
+      "description": "Captain profiles with immutable server-controlled financial and approval fields."
+    },
+    "/drivers/{driverId}": {
+      "schema": "Captain",
+      "description": "Legacy driver mirror collection with identical access and financial protections."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Delivery orders; mutations restricted strictly to Cloud Functions / Admin."
+    },
+    "/restaurants/{restaurantId}": {
+      "schema": "Restaurant",
+      "description": "Merchant restaurants; regular users and captains cannot modify."
+    },
+    "/merchants/{merchantId}": {
+      "schema": "Restaurant",
+      "description": "Merchant accounts; regular users and captains cannot modify."
+    },
+    "/captain_schedules/{scheduleId}": {
+      "schema": "CaptainSchedule",
+      "description": "Admin-managed work shift schedules read by owning captain."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Customer profiles isolated per user."
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "System administrators registry."
+    }
+  }
+}

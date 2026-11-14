@@ -1,0 +1,6 @@
+{
+  "name": "البطل أكسبريس كابتن",
+  "description": "تطبيق الكابتن لاستقبال وإدارة طلبات التوصيل من تطبيق البطل إكسبريس السريع",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

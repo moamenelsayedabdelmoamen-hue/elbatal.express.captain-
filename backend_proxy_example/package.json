@@ -1,0 +1,23 @@
+{
+  "name": "el-batal-express-functions",
+  "description": "Cloud Functions for El-Batal Express (ImgBB Secure Proxy)",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "main": "functions/index.js",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "busboy": "^1.6.0",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^5.1.1",
+    "form-data": "^4.0.1"
+  },
+  "private": true
+}

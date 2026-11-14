@@ -1,0 +1,436 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 0. Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isCaptainAccount() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/captains/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
+      );
+    }
+
+    function isMerchantAccount() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/restaurants/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/merchants/$(request.auth.uid))
+      );
+    }
+
+    function isOptionalBoundedString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    // --- 1. Captains & Drivers Validation & Rules ---
+    // Protects financial, subscription, approval, and moderation fields from client tampering.
+    function isValidCaptainProfileShape(data, expectedUid) {
+      return ('uid' in data) && data.uid == expectedUid
+        && (!('role' in data) || data.role in ['captain', 'driver'])
+        && isOptionalBoundedString(data, 'name', 120)
+        && isOptionalBoundedString(data, 'fullName', 120)
+        && isOptionalBoundedString(data, 'driver_name', 120)
+        && isOptionalBoundedString(data, 'email', 160)
+        && isOptionalBoundedString(data, 'phone', 32)
+        && isOptionalBoundedString(data, 'phoneNumber', 32)
+        && isOptionalBoundedString(data, 'vehicleType', 80)
+        && isOptionalBoundedString(data, 'licensePlate', 40)
+        && isOptionalBoundedString(data, 'avatarUri', 500)
+        && isOptionalBoundedString(data, 'profileImagePath', 300)
+        && isOptionalBoundedString(data, 'idFrontImagePath', 300)
+        && isOptionalBoundedString(data, 'idBackImagePath', 300)
+        && isOptionalBoundedString(data, 'licenseImagePath', 300)
+        && isOptionalBoundedString(data, 'presenceStatus', 32)
+        && isOptionalBoundedString(data, 'fcmToken', 512)
+        && (!('isOnline' in data) || data.isOnline is bool)
+        && (!('isLoggedIn' in data) || data.isLoggedIn is bool)
+        && (!('idDocumentsComplete' in data) || data.idDocumentsComplete is bool);
+    }
+
+    // On self-registration, financial & administrative privilege fields MUST NOT be elevated
+    function hasSafeInitialCaptainFinancialAndAdminFields(data) {
+      return (!('status' in data) || data.status == 'pending')
+        && (!('walletBalance' in data) || (data.walletBalance is number && data.walletBalance == 0))
+        && (!('totalOrdersCount' in data) || (data.totalOrdersCount is int && data.totalOrdersCount == 0))
+        && (!('rating' in data) || (data.rating is number && data.rating == 5.0))
+        && !('isApproved' in data)
+        && !('isAdmin' in data)
+        && !('subscription' in data)
+        && !('subscriptionStatus' in data)
+        && !('subscriptionPlan' in data)
+        && !('subscriptionExpiresAt' in data)
+        && !('creditLimit' in data)
+        && !('commissionRate' in data)
+        && !('activeMerchantId' in data)
+        && !('currentMerchantId' in data);
+    }
+
+    // Strict allowlist of non-sensitive operational & Storage path fields a captain can update on their own profile.
+    // Explicitly EXCLUDES walletBalance, totalOrdersCount, rating, role, status, isApproved, subscriptions, and activeMerchantId.
+    function isAllowedCaptainSelfUpdateKeys() {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+        'name',
+        'fullName',
+        'driver_name',
+        'phone',
+        'phoneNumber',
+        'vehicleType',
+        'licensePlate',
+        'avatarUri',
+        'avatarPresetIndex',
+        'profileImagePath',
+        'profileImageUpdatedAt',
+        'idFrontImagePath',
+        'idFrontUploadedAt',
+        'idBackImagePath',
+        'idBackUploadedAt',
+        'licenseImagePath',
+        'licenseImageUpdatedAt',
+        'idDocumentsComplete',
+        'location',
+        'latitude',
+        'longitude',
+        'accuracy',
+        'bearing',
+        'speed',
+        'lastLocationUpdate',
+        'lastLocationTimestamp',
+        'presenceStatus',
+        'isOnline',
+        'isLoggedIn',
+        'emailVerified',
+        'isEmailVerified',
+        'fcmToken',
+        'updatedAt'
+      ]);
+    }
+
+    function isMerchantLinkedToCaptain(captainData) {
+      return isMerchantAccount() && (
+        ('activeMerchantId' in captainData && captainData.activeMerchantId == request.auth.uid) ||
+        ('currentMerchantId' in captainData && captainData.currentMerchantId == request.auth.uid)
+      );
+    }
+
+    match /captains/{captainId} {
+      // NO public read: only owning captain, admin, or merchant linked to active order with this captain
+      allow get: if isSignedIn() && isValidId(captainId) && (
+        request.auth.uid == captainId ||
+        isAdmin() ||
+        isMerchantLinkedToCaptain(existing())
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        ('uid' in existing() && existing().uid == request.auth.uid)
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(captainId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == captainId
+            && !isMerchantAccount()
+            && isValidCaptainProfileShape(incoming(), captainId)
+            && hasSafeInitialCaptainFinancialAndAdminFields(incoming())
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidId(captainId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == captainId
+            && isValidCaptainProfileShape(incoming(), captainId)
+            && isAllowedCaptainSelfUpdateKeys()
+          )
+        );
+
+      allow delete: if isAdmin();
+
+      // Financial & wallet subcollections: strictly read-only for owning captain; written ONLY by Server / Admin
+      match /transactions/{txId} {
+        allow get, list: if isSignedIn() && (request.auth.uid == captainId || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /daily_wallets/{dayKey} {
+        allow get, list: if isSignedIn() && (request.auth.uid == captainId || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /subscriptions/{subId} {
+        allow get, list: if isSignedIn() && (request.auth.uid == captainId || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /shifts/{shiftId} {
+        allow get, list: if isSignedIn() && (request.auth.uid == captainId || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    match /drivers/{driverId} {
+      allow get: if isSignedIn() && isValidId(driverId) && (
+        request.auth.uid == driverId ||
+        isAdmin() ||
+        isMerchantLinkedToCaptain(existing())
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        ('uid' in existing() && existing().uid == request.auth.uid)
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(driverId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == driverId
+            && !isMerchantAccount()
+            && isValidCaptainProfileShape(incoming(), driverId)
+            && hasSafeInitialCaptainFinancialAndAdminFields(incoming())
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidId(driverId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == driverId
+            && isValidCaptainProfileShape(incoming(), driverId)
+            && isAllowedCaptainSelfUpdateKeys()
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // --- 2. Users (Customers) Collection ---
+    // Isolated per user; blocks self-assigned roles, admin flags, wallet tampering, and cross-user PII scraping.
+    function isValidCustomerUserDoc(data) {
+      return isOptionalBoundedString(data, 'name', 120)
+        && isOptionalBoundedString(data, 'fullName', 120)
+        && isOptionalBoundedString(data, 'email', 160)
+        && isOptionalBoundedString(data, 'phone', 32)
+        && isOptionalBoundedString(data, 'address', 300)
+        && (!('role' in data) || data.role == 'customer' || data.role == 'user')
+        && !('isAdmin' in data)
+        && !('walletBalance' in data);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && (
+          isAdmin() ||
+          (request.auth.uid == userId && isValidCustomerUserDoc(incoming()))
+        );
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == userId
+            && isValidCustomerUserDoc(incoming())
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'fullName', 'phone', 'address', 'fcmToken', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // --- 3. Restaurants & Merchants Collections ---
+    // Regular users and captains are STRICTLY FORBIDDEN from creating, modifying, or deleting restaurant data.
+    function isValidRestaurantDoc(data) {
+      return ('name' in data) && data.name is string && data.name.size() >= 1 && data.name.size() <= 150
+        && isOptionalBoundedString(data, 'phone', 32)
+        && isOptionalBoundedString(data, 'address', 300)
+        && isOptionalBoundedString(data, 'description', 500)
+        && isOptionalBoundedString(data, 'imageUrl', 500)
+        && (!('isOpen' in data) || data.isOpen is bool);
+    }
+
+    function isAllowedMerchantSelfUpdateKeys() {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+        'name',
+        'phone',
+        'address',
+        'description',
+        'imageUrl',
+        'isOpen',
+        'workingHours',
+        'fcmToken',
+        'updatedAt'
+      ]);
+    }
+
+    match /restaurants/{restaurantId} {
+      // Authenticated users can read store pickup/menu metadata (no unauthenticated public scraping)
+      allow get, list: if isSignedIn();
+
+      // Only Admin can provision or delete restaurant documents
+      allow create, delete: if isAdmin();
+
+      // Only the verified owning merchant of THIS restaurant (already provisioned) or Admin can update non-financial fields
+      allow update: if isSignedIn()
+        && isValidId(restaurantId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == restaurantId
+            && exists(/databases/$(database)/documents/restaurants/$(request.auth.uid))
+            && !isCaptainAccount()
+            && isValidRestaurantDoc(incoming())
+            && isAllowedMerchantSelfUpdateKeys()
+          )
+        );
+    }
+
+    match /merchants/{merchantId} {
+      allow get: if isSignedIn() && isValidId(merchantId) && (request.auth.uid == merchantId || isAdmin());
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isSignedIn()
+        && isValidId(merchantId)
+        && (
+          isAdmin() ||
+          (
+            request.auth.uid == merchantId
+            && exists(/databases/$(database)/documents/merchants/$(request.auth.uid))
+            && !isCaptainAccount()
+            && isValidRestaurantDoc(incoming())
+            && isAllowedMerchantSelfUpdateKeys()
+          )
+        );
+    }
+
+    // --- 4. Admins Collection ---
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow write: if false; // Strictly managed via Firebase Admin SDK / Console
+    }
+
+    // --- 5. Orders Collection (Server-Authoritative Only) ---
+    // - NO public or blanket authenticated reads.
+    // - Captains read ONLY their own assigned/offered orders OR unassigned 'pending' orders.
+    // - Merchants read ONLY orders belonging to their own store.
+    // - Customers read ONLY their own orders.
+    // - ZERO client writes by captains or regular users; all order mutations go exclusively through Cloud Functions (Admin SDK).
+    function isOrderAssignedOrOfferedToCaptain(data) {
+      return ('captainId' in data && data.captainId == request.auth.uid) ||
+             ('driverId' in data && data.driverId == request.auth.uid) ||
+             ('captainUid' in data && data.captainUid == request.auth.uid) ||
+             ('assignedCaptainId' in data && data.assignedCaptainId == request.auth.uid) ||
+             ('offeredCaptainId' in data && data.offeredCaptainId == request.auth.uid);
+    }
+
+    function isAvailablePendingOrder(data) {
+      return ('status' in data && data.status == 'pending');
+    }
+
+    function isOrderOwnedByMerchant(data) {
+      return isMerchantAccount() && (
+        ('merchantId' in data && data.merchantId == request.auth.uid) ||
+        ('restaurantId' in data && data.restaurantId == request.auth.uid) ||
+        ('storeId' in data && data.storeId == request.auth.uid) ||
+        ('vendorId' in data && data.vendorId == request.auth.uid) ||
+        ('ownerId' in data && data.ownerId == request.auth.uid)
+      );
+    }
+
+    function isOrderOwnedByCustomer(data) {
+      return ('customerId' in data && data.customerId == request.auth.uid) ||
+             ('userId' in data && data.userId == request.auth.uid);
+    }
+
+    function canReadOrder(data) {
+      return isAdmin() ||
+             (isCaptainAccount() && (isOrderAssignedOrOfferedToCaptain(data) || isAvailablePendingOrder(data))) ||
+             isOrderOwnedByMerchant(data) ||
+             isOrderOwnedByCustomer(data);
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && isValidId(orderId) && canReadOrder(existing());
+      allow list: if isSignedIn() && canReadOrder(existing());
+
+      // All order creation, acceptance, pickup, receipt binding, merchant confirmation, and delivery
+      // MUST execute through Cloud Functions (Admin SDK) or verified Admin only.
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --- 6. Captain Schedules & Shifts (Read-Only for Owning Captain, Admin-Managed) ---
+    match /captain_schedules/{scheduleId} {
+      allow get: if isSignedIn() && isValidId(scheduleId) && (
+        scheduleId == request.auth.uid ||
+        isAdmin() ||
+        (existing() != null && (
+          ('captainId' in existing() && existing().captainId == request.auth.uid) ||
+          ('captainUid' in existing() && existing().captainUid == request.auth.uid) ||
+          ('driverId' in existing() && existing().driverId == request.auth.uid)
+        ))
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        ('captainId' in existing() && existing().captainId == request.auth.uid) ||
+        ('captainUid' in existing() && existing().captainUid == request.auth.uid) ||
+        ('driverId' in existing() && existing().driverId == request.auth.uid)
+      );
+
+      allow create, update, delete: if isAdmin();
+
+      match /shifts/{shiftId} {
+        allow get, list: if isSignedIn() && (scheduleId == request.auth.uid || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    match /shifts/{shiftId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        ('captainId' in existing() && existing().captainId == request.auth.uid) ||
+        ('driverId' in existing() && existing().driverId == request.auth.uid) ||
+        ('captainUid' in existing() && existing().captainUid == request.auth.uid)
+      );
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
