@@ -44,6 +44,43 @@ async function authenticateCaptain(req, res) {
   }
 }
 
+// ------------------------------------------------------------------------------
+// Authorization helpers (authenticateCaptain above only proves "some signed-in user")
+// ------------------------------------------------------------------------------
+const MAX_DELIVERY_FEE = 200; // sanity cap: a merchant-written deliveryFee can never pay a captain more than this
+const DEFAULT_DELIVERY_FEE = 25.0;
+
+async function isAdminUser(db, user) {
+  if (user.admin === true || user.role === "admin") return true;
+  const snap = await db.collection("admins").doc(user.uid).get();
+  return snap.exists;
+}
+
+function isOrderMerchant(orderData, uid) {
+  return [orderData.restaurantId, orderData.merchantId, orderData.storeId, orderData.vendorId, orderData.ownerId]
+    .some((v) => v && v === uid);
+}
+
+// Only captains approved by an admin (and not blocked) may take orders.
+async function requireApprovedCaptain(db, user, res) {
+  const [capSnap, drvSnap] = await Promise.all([
+    db.collection("captains").doc(user.uid).get(),
+    db.collection("drivers").doc(user.uid).get(),
+  ]);
+  const snap = capSnap.exists ? capSnap : drvSnap;
+  if (!snap.exists) {
+    res.status(403).json({ error: "غير مصرح: حساب الكابتن غير موجود" });
+    return false;
+  }
+  const d = snap.data() || {};
+  const approved = ["active", "approved"].includes(String(d.status || "").toLowerCase()) || d.isApproved === true;
+  if (d.isBlocked === true || !approved) {
+    res.status(403).json({ error: "حسابك غير معتمد أو موقوف، تواصل مع الإدارة" });
+    return false;
+  }
+  return true;
+}
+
 /**
  * Resilient order document reference resolver:
  * Handles order IDs with or without leading '#', as well as matching by 'orderNumber' or 'order_number' fields.
@@ -106,6 +143,7 @@ async function handleAcceptDeliveryOffer(req, res) {
   }
 
   const db = admin.firestore();
+  if (!(await requireApprovedCaptain(db, user, res))) return;
   const orderRef = await resolveOrderReference(db, orderId);
 
   try {
@@ -141,6 +179,12 @@ async function handleAcceptDeliveryOffer(req, res) {
       const offerExpiresAt = data.offerExpiresAt || 0;
       if (offerExpiresAt > 0 && nowMs > offerExpiresAt && existingCaptain !== user.uid) {
         throw new Error("انتهت مهلة قبول الطلب وتم تحويله إلى كابتن آخر");
+      }
+
+      // 2b. An unexpired offer reserved for another captain cannot be taken by someone else
+      if (data.offeredCaptainId && data.offeredCaptainId !== user.uid && existingCaptain !== user.uid &&
+          (!offerExpiresAt || nowMs <= offerExpiresAt)) {
+        throw new Error("هذا العرض مخصص لكابتن آخر");
       }
 
       // 3. Status eligibility check
@@ -194,6 +238,9 @@ async function handleCaptainArrivedAtMerchant(req, res) {
       if (data.captainId !== user.uid && data.driverId !== user.uid) {
         throw new Error("غير مصرح: هذا الطلب ليس مسنداً إليك");
       }
+      if (!["accepted", "assigned", "arrived_at_merchant", "at_store"].includes(String(data.status || "").toLowerCase())) {
+        throw new Error("لا يمكن تسجيل الوصول في الحالة الحالية للطلب");
+      }
       transaction.update(orderRef, {
         status: "arrived_at_merchant",
         arrivedAtStoreTimestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -232,6 +279,9 @@ exports.confirmPickup = onRequest(
         const data = doc.data();
         if (data.captainId !== user.uid && data.driverId !== user.uid) {
           throw new Error("غير مصرح: هذا الطلب ليس مسنداً إليك");
+        }
+        if (!["accepted", "assigned", "arrived_at_merchant", "at_store", "picked_up"].includes(String(data.status || "").toLowerCase())) {
+          throw new Error("لا يمكن تأكيد الاستلام في الحالة الحالية للطلب");
         }
         transaction.update(orderRef, {
           status: "picked_up",
@@ -300,16 +350,27 @@ exports.merchantConfirmOrder = onRequest(
   { cors: true, timeoutSeconds: 30, memory: "256MiB" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+    const user = await authenticateCaptain(req, res); // verifies the Firebase ID token
+    if (!user) return;
     const { orderId, confirmed, rejectionReason } = req.body || {};
     if (!orderId) return res.status(400).json({ error: "معرف الطلب مطلوب" });
 
     const db = admin.firestore();
     const orderRef = await resolveOrderReference(db, orderId);
+    const callerIsAdmin = await isAdminUser(db, user);
 
     try {
       await db.runTransaction(async (transaction) => {
         const doc = await transaction.get(orderRef);
         if (!doc.exists) throw new Error("الطلب غير موجود");
+        const orderData = doc.data();
+        // only the merchant that owns THIS order (or an admin) may confirm / reject it
+        if (!callerIsAdmin && !isOrderMerchant(orderData, user.uid)) {
+          throw new Error("غير مصرح: هذا الطلب ليس تابعاً لمتجرك");
+        }
+        const waiting = ["awaiting_merchant_confirmation", "awaiting_confirmation", "بانتظار تأكيد البيانات"]
+          .includes(String(orderData.status || "").toLowerCase()) || orderData.customerDetailsSubmitted === true;
+        if (!waiting) throw new Error("الطلب ليس بانتظار التأكيد");
         if (confirmed) {
           transaction.update(orderRef, {
             status: "en_route",
@@ -351,7 +412,7 @@ async function handleConfirmDelivery(req, res) {
   const transactionRecordRef = captainRef.collection("transactions").doc(cleanId);
 
   try {
-    let earnedDeliveryFee = 25.0;
+    let earnedDeliveryFee = DEFAULT_DELIVERY_FEE;
     await db.runTransaction(async (transaction) => {
       const orderDoc = await transaction.get(orderRef);
       if (!orderDoc.exists) throw new Error("الطلب غير موجود");
@@ -362,9 +423,17 @@ async function handleConfirmDelivery(req, res) {
       if (orderData.status === "delivered" || orderData.status === "completed") {
         throw new Error("الطلب مسجل كمكتمل مسبقاً");
       }
+      // The order must at least have been picked up: otherwise a captain could accept an order
+      // and immediately "deliver" it to collect the fee without doing anything.
+      const tooEarly = ["pending", "searching", "new", "offered", "ready", "ready_for_pickup", "waiting_driver",
+        "accepted", "assigned", "arrived_at_merchant", "at_store", "arrived", "arrived_store",
+        "cancelled", "canceled", "rejected", "expired", "ملغي", "مرفوض", "منتهي", "تم القبول", "مقبول"];
+      if (tooEarly.includes(String(orderData.status || "").toLowerCase())) {
+        throw new Error("لا يمكن إنهاء التسليم قبل استلام الطلب من التاجر");
+      }
 
       if (typeof orderData.deliveryFee === "number" && orderData.deliveryFee > 0) {
-        earnedDeliveryFee = orderData.deliveryFee;
+        earnedDeliveryFee = Math.min(orderData.deliveryFee, MAX_DELIVERY_FEE);
       }
 
       // 1. Mark order delivered
@@ -413,11 +482,14 @@ exports.expireDeliveryOffer = onRequest(
   { cors: true, timeoutSeconds: 30, memory: "256MiB" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+    const user = await authenticateCaptain(req, res);
+    if (!user) return;
     const { orderId, captainId } = req.body || {};
     if (!orderId) return res.status(400).json({ error: "معرف الطلب مطلوب" });
 
     const db = admin.firestore();
     const orderRef = db.collection("orders").doc(String(orderId));
+    const callerIsAdmin = await isAdminUser(db, user);
 
     try {
       let shouldReassign = false;
@@ -425,11 +497,15 @@ exports.expireDeliveryOffer = onRequest(
         const doc = await transaction.get(orderRef);
         if (!doc.exists) throw new Error("الطلب غير موجود");
         const data = doc.data();
+        // only the captain this offer was made to, the order's merchant, or an admin may expire it
+        if (!callerIsAdmin && data.offeredCaptainId !== user.uid && !isOrderMerchant(data, user.uid)) {
+          throw new Error("غير مصرح: هذا العرض ليس مخصصاً لك");
+        }
 
         // Only expire if still in pending/offered state
         if (data.status === "pending" || data.status === "searching" || data.status === "offered") {
           const excluded = Array.isArray(data.excludedCaptainIds) ? [...data.excludedCaptainIds] : [];
-          const targetCaptain = captainId || data.offeredCaptainId;
+          const targetCaptain = callerIsAdmin ? (captainId || data.offeredCaptainId) : data.offeredCaptainId;
           if (targetCaptain && !excluded.includes(targetCaptain)) {
             excluded.push(targetCaptain);
           }
@@ -463,6 +539,8 @@ exports.assignNextAvailableCaptain = onRequest(
   { cors: true, timeoutSeconds: 30, memory: "256MiB" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+    const user = await authenticateCaptain(req, res);
+    if (!user) return;
     const { orderId } = req.body || {};
     if (!orderId) return res.status(400).json({ error: "معرف الطلب مطلوب" });
 
@@ -473,6 +551,9 @@ exports.assignNextAvailableCaptain = onRequest(
       const orderDoc = await orderRef.get();
       if (!orderDoc.exists) return res.status(404).json({ error: "الطلب غير موجود" });
       const orderData = orderDoc.data();
+      if (!(await isAdminUser(db, user)) && !isOrderMerchant(orderData, user.uid)) {
+        return res.status(403).json({ error: "غير مصرح: هذا الطلب ليس تابعاً لمتجرك" });
+      }
       const excluded = Array.isArray(orderData.excludedCaptainIds) ? orderData.excludedCaptainIds : [];
 
       // Find eligible online captains
@@ -534,13 +615,16 @@ exports.uploadImageToImgBB = onRequest(
     const user = await authenticateCaptain(req, res);
     if (!user) return;
 
-    const bb = busboy({ headers: req.headers });
+    const bb = busboy({ headers: req.headers, limits: { files: 1, fileSize: 10 * 1024 * 1024 } });
     let fileBuffer = null;
     let fileName = "upload.jpg";
+    let tooLarge = false;
 
     bb.on("file", (name, file, info) => {
       fileName = info.filename || "upload.jpg";
       const chunks = [];
+      if (!/^image\/(jpeg|jpg|png|webp)$/i.test(info.mimeType || "")) { file.resume(); return; }
+      file.on("limit", () => { tooLarge = true; });
       file.on("data", (data) => chunks.push(data));
       file.on("end", () => {
         fileBuffer = Buffer.concat(chunks);
@@ -548,6 +632,9 @@ exports.uploadImageToImgBB = onRequest(
     });
 
     bb.on("finish", async () => {
+      if (tooLarge) {
+        return res.status(413).json({ error: "حجم الصورة أكبر من 10 ميجابايت" });
+      }
       if (!fileBuffer || fileBuffer.length === 0) {
         return res.status(400).json({ error: "لم يتم استلام أي بيانات صورة" });
       }
