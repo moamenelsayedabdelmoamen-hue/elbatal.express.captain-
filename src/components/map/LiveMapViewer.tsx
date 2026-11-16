@@ -333,7 +333,9 @@ export const LiveMapViewer: React.FC<LiveMapViewerProps> = ({
     });
   }, [activeOrders, restaurants, captains, filter, selectedOrderId]);
 
-  // Center on Selected Item when it changes
+  // Center on Selected Item when selection or coordinates first become available
+  const lastCenteredKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -341,13 +343,23 @@ export const LiveMapViewer: React.FC<LiveMapViewerProps> = ({
     if (selectedRestaurantId) {
       const rest = restaurants.find((r) => r.id === selectedRestaurantId);
       if (rest?.coords) {
-        map.flyTo([rest.coords.lat, rest.coords.lng], 15, { duration: 1.2 });
+        const key = `rest:${rest.id}`;
+        if (lastCenteredKeyRef.current !== key) {
+          lastCenteredKeyRef.current = key;
+          map.flyTo([rest.coords.lat, rest.coords.lng], 16, { duration: 1.1 });
+        }
       }
     } else if (selectedCaptainId) {
       const capt = captains.find((c) => c.id === selectedCaptainId);
       if (capt?.coords) {
-        map.flyTo([capt.coords.lat, capt.coords.lng], 15, { duration: 1.2 });
+        const key = `capt:${capt.id}`;
+        if (lastCenteredKeyRef.current !== key) {
+          lastCenteredKeyRef.current = key;
+          map.flyTo([capt.coords.lat, capt.coords.lng], 15, { duration: 1.1 });
+        }
       }
+    } else {
+      lastCenteredKeyRef.current = null;
     }
   }, [selectedRestaurantId, selectedCaptainId, restaurants, captains]);
 

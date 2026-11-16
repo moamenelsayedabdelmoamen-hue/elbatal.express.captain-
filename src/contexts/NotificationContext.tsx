@@ -11,6 +11,7 @@ import {
 import { AdminNotification } from '../types';
 import { useToast } from './ToastContext';
 import { useAuth } from './AuthContext';
+import { extractOrderCode } from '../services/orderService';
 
 interface NotificationContextValue {
   notifications: AdminNotification[];
@@ -196,9 +197,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           snapshot.docChanges().forEach((change) => {
             const docId = change.doc.id;
             const data = change.doc.data();
-            const orderNumber = String(
-              data.orderNumber || data.order_number || data.orderId || docId
-            );
+            const orderNumber = extractOrderCode(docId, data) || 'جديد';
             const restaurantName = String(
               data.restaurantName || data.merchantName || data.restaurant?.name || 'تاجر'
             );

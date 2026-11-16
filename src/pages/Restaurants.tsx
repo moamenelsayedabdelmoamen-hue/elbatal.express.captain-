@@ -18,6 +18,8 @@ import {
   Navigation,
   Upload,
   Image as ImageIcon,
+  MapPin,
+  ExternalLink,
 } from 'lucide-react';
 import { Restaurant, SubscriptionStatus, Order } from '../types';
 import { RestaurantService } from '../services/restaurantService';
@@ -30,6 +32,7 @@ import { uploadImageToFirebaseStorage } from '../utils/storageUtils';
 import { useToast } from '../contexts/ToastContext';
 import { ExportButton } from '../components/common/ExportButton';
 import { exportRestaurants } from '../utils/exportUtils';
+import { extractCoordinatesFromText } from '../utils/geoUtils';
 
 export const RestaurantsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -57,6 +60,7 @@ export const RestaurantsPage: React.FC = () => {
     ownerEmail: '',
     phone: '',
     address: '',
+    locationUrl: '',
     logo: '',
     rating: 5.0,
     subscriptionStatus: 'Active' as SubscriptionStatus,
@@ -107,7 +111,9 @@ export const RestaurantsPage: React.FC = () => {
         r.name.toLowerCase().includes(q) ||
         (r.category && r.category.toLowerCase().includes(q)) ||
         (r.ownerEmail && r.ownerEmail.toLowerCase().includes(q)) ||
-        (r.phone && r.phone.includes(searchQuery));
+        (r.phone && r.phone.includes(searchQuery)) ||
+        (r.address && r.address.toLowerCase().includes(q)) ||
+        (r.locationUrl && r.locationUrl.toLowerCase().includes(q));
 
       const matchesStatus =
         statusFilter === 'all'
@@ -164,6 +170,7 @@ export const RestaurantsPage: React.FC = () => {
       ownerEmail: restaurant.ownerEmail && restaurant.ownerEmail !== '—' ? restaurant.ownerEmail : '',
       phone: restaurant.phone && restaurant.phone !== '—' ? restaurant.phone : '',
       address: restaurant.address && restaurant.address !== '—' ? restaurant.address : '',
+      locationUrl: restaurant.locationUrl || '',
       logo: restaurant.logo || restaurant.image || '',
       rating: restaurant.rating || 5.0,
       subscriptionStatus: restaurant.subscriptionStatus || 'Active',
@@ -177,12 +184,16 @@ export const RestaurantsPage: React.FC = () => {
 
     setActionLoading(true);
     try {
+      const trimmedLocationUrl = formData.locationUrl.trim();
+      const parsedCoords = trimmedLocationUrl ? extractCoordinatesFromText(trimmedLocationUrl) : null;
+
       await RestaurantService.update(editingRestaurant.id, {
         name: formData.name,
         category: formData.category,
         ownerEmail: formData.ownerEmail || '—',
         phone: formData.phone,
         address: formData.address,
+        locationUrl: trimmedLocationUrl,
         logo: formData.logo,
         subscriptionStatus: formData.subscriptionStatus,
       });
@@ -193,6 +204,8 @@ export const RestaurantsPage: React.FC = () => {
             ? {
                 ...r,
                 ...formData,
+                locationUrl: trimmedLocationUrl || undefined,
+                coords: parsedCoords || r.coords || null,
                 ownerEmail: formData.ownerEmail || '—',
               }
             : r
@@ -217,12 +230,14 @@ export const RestaurantsPage: React.FC = () => {
 
     setActionLoading(true);
     try {
+      const trimmedLocationUrl = formData.locationUrl.trim();
       const newRest = await RestaurantService.create({
         name: formData.name,
         category: formData.category || 'عام',
         ownerEmail: formData.ownerEmail || '—',
         phone: formData.phone || '',
         address: formData.address || '',
+        locationUrl: trimmedLocationUrl || undefined,
         logo: formData.logo || '',
         rating: 5.0,
         subscriptionStatus: formData.subscriptionStatus,
@@ -238,6 +253,7 @@ export const RestaurantsPage: React.FC = () => {
         ownerEmail: '',
         phone: '',
         address: '',
+        locationUrl: '',
         logo: '',
         rating: 5.0,
         subscriptionStatus: 'Active',
@@ -299,6 +315,7 @@ export const RestaurantsPage: React.FC = () => {
                 ownerEmail: '',
                 phone: '',
                 address: '',
+                locationUrl: '',
                 logo: '',
                 rating: 5.0,
                 subscriptionStatus: 'Active',
@@ -402,6 +419,7 @@ export const RestaurantsPage: React.FC = () => {
                   <th className="py-4 px-4">التصنيف</th>
                   <th className="py-4 px-4">البريد الإلكتروني</th>
                   <th className="py-4 px-4">رقم الهاتف</th>
+                  <th className="py-4 px-4">رابط الموقع / الخريطة</th>
                   <th className="py-4 px-4">الطلبات</th>
                   <th className="py-4 px-4">حالة الاشتراك</th>
                   <th className="py-4 px-4">الحالة</th>
@@ -476,6 +494,46 @@ export const RestaurantsPage: React.FC = () => {
                       {/* رقم الهاتف */}
                       <td className="py-4 px-4 text-xs font-mono text-zinc-300" dir="ltr">
                         {restaurant.phone || '—'}
+                      </td>
+
+                      {/* رابط الموقع / الخريطة */}
+                      <td className="py-4 px-4">
+                        <div className="flex flex-col items-start gap-1.5 min-w-[155px]">
+                          {restaurant.locationUrl ? (
+                            <a
+                              href={restaurant.locationUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-400 hover:text-sky-300 underline decoration-sky-500/40 underline-offset-2 max-w-[190px]"
+                              title={restaurant.locationUrl}
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate" dir="ltr">
+                                {restaurant.locationUrl}
+                              </span>
+                            </a>
+                          ) : (
+                            <span className="text-[11px] text-zinc-500">لا يوجد رابط موقع</span>
+                          )}
+
+                          {restaurant.coords ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate(`/live-map?restaurantId=${encodeURIComponent(restaurant.id)}`)
+                              }
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold transition-colors cursor-pointer"
+                              title="تحديد موقع التاجر على الخرائط المباشرة"
+                            >
+                              <MapPin className="w-3.5 h-3.5 shrink-0" />
+                              <span>تحديد على الخريطة</span>
+                            </button>
+                          ) : restaurant.locationUrl ? (
+                            <span className="text-[10px] text-amber-400/90">
+                              رابط مباشر (بدون إحداثيات GPS)
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
 
                       {/* الطلبات */}
@@ -626,6 +684,30 @@ export const RestaurantsPage: React.FC = () => {
                 <span className="text-zinc-500 block mb-1">العنوان والموقع</span>
                 <span className="font-bold text-zinc-200">{viewingRestaurant.address || 'غير محدد'}</span>
               </div>
+              <div className="col-span-2 p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-zinc-500 block mb-1.5">رابط الموقع الذي أضافه التاجر</span>
+                {viewingRestaurant.locationUrl ? (
+                  <div className="flex flex-col gap-1.5">
+                    <a
+                      href={viewingRestaurant.locationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sky-400 hover:text-sky-300 font-semibold break-all underline decoration-sky-500/40"
+                      dir="ltr"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                      <span>{viewingRestaurant.locationUrl}</span>
+                    </a>
+                    {viewingRestaurant.coords && (
+                      <span className="text-[11px] text-emerald-400 font-mono" dir="ltr">
+                        GPS: {viewingRestaurant.coords.lat.toFixed(6)}, {viewingRestaurant.coords.lng.toFixed(6)}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-zinc-500">لم يضف التاجر رابط موقع بعد</span>
+                )}
+              </div>
             </div>
 
             {/* Orders Section in Modal */}
@@ -671,13 +753,13 @@ export const RestaurantsPage: React.FC = () => {
               </div>
               <button
                 onClick={() => {
-                  navigate('/live-map');
+                  navigate(`/live-map?restaurantId=${encodeURIComponent(viewingRestaurant.id)}`);
                   setViewingRestaurant(null);
                 }}
                 className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
               >
                 <Navigation className="w-4 h-4" />
-                <span>فتح على الخريطة</span>
+                <span>تحديد على الخريطة</span>
               </button>
             </div>
 
@@ -800,6 +882,31 @@ export const RestaurantsPage: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   className="w-full bg-[#0a0c12] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-zinc-100 focus:outline-none focus:border-amber-500"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-zinc-300 mb-1.5">رابط الموقع (Google Maps)</label>
+                <input
+                  type="text"
+                  value={formData.locationUrl}
+                  onChange={(e) => setFormData({ ...formData, locationUrl: e.target.value })}
+                  dir="ltr"
+                  placeholder="https://maps.google.com/?q=30.0444,31.2357"
+                  className="w-full bg-[#0a0c12] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-zinc-100 focus:outline-none focus:border-amber-500"
+                />
+                {formData.locationUrl.trim() && (
+                  <p className="mt-1 text-[11px]">
+                    {extractCoordinatesFromText(formData.locationUrl) ? (
+                      <span className="text-emerald-400">
+                        ✓ تم استخراج الإحداثيات بنجاح للعرض على الخرائط المباشرة
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400">
+                        سيتم حفظ الرابط كما هو (يفضل رابط يحتوي على الإحداثيات مثل @lat,lng للظهور على الخريطة)
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -944,6 +1051,31 @@ export const RestaurantsPage: React.FC = () => {
                   placeholder="المدينة، الشارع، علامة مميزة"
                   className="w-full bg-[#0a0c12] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-zinc-100 focus:outline-none focus:border-amber-500"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-zinc-300 mb-1.5">رابط الموقع (Google Maps)</label>
+                <input
+                  type="text"
+                  value={formData.locationUrl}
+                  onChange={(e) => setFormData({ ...formData, locationUrl: e.target.value })}
+                  dir="ltr"
+                  placeholder="https://maps.google.com/?q=30.0444,31.2357"
+                  className="w-full bg-[#0a0c12] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-zinc-100 focus:outline-none focus:border-amber-500"
+                />
+                {formData.locationUrl.trim() && (
+                  <p className="mt-1 text-[11px]">
+                    {extractCoordinatesFromText(formData.locationUrl) ? (
+                      <span className="text-emerald-400">
+                        ✓ تم استخراج الإحداثيات بنجاح للعرض على الخرائط المباشرة
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400">
+                        سيتم حفظ الرابط كما هو (يفضل رابط يحتوي على الإحداثيات مثل @lat,lng للظهور على الخريطة)
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800/80">

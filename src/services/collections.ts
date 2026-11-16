@@ -8,6 +8,7 @@ export const COLLECTIONS = {
   RESTAURANTS: 'restaurants',
   CAPTAINS: 'captains',
   ORDERS: 'orders',
+  ORDER_CODES: 'order_codes',
   SUBSCRIPTIONS: 'subscriptions',
   PAYMENTS: 'payments',
   SETTINGS: 'settings',

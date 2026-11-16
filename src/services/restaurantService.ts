@@ -13,7 +13,7 @@ import {
 import { db, isFirebaseConfigured, handleFirestoreError, OperationType } from '../firebase/config';
 import { COLLECTIONS } from './collections';
 import { Restaurant, SubscriptionStatus } from '../types';
-import { extractCoordinates } from '../utils/geoUtils';
+import { extractCoordinates, extractCoordinatesFromText, extractLocationUrl } from '../utils/geoUtils';
 
 // Local cache for real data fetched from Firestore
 let localRestaurantsCache: Restaurant[] = [];
@@ -53,6 +53,7 @@ function mapDocToRestaurant(id: string, data: Record<string, any>): Restaurant {
     '';
 
   const coords = extractCoordinates(data);
+  const locationUrl = extractLocationUrl(data, coords);
 
   return {
     id,
@@ -66,11 +67,16 @@ function mapDocToRestaurant(id: string, data: Record<string, any>): Restaurant {
       'Active',
     isActive: typeof data.isActive === 'boolean' ? data.isActive : (data.status === 'active' || data.status === 'نشط'),
     createdAt: formatTimestamp(data.createdAt || data.registeredAt || data.updatedAt),
-    address: data.address || data.locationAddress || data.addressAr || (typeof data.location === 'string' ? data.location : '—'),
+    address:
+      data.address ||
+      data.locationAddress ||
+      data.addressAr ||
+      (typeof data.location === 'string' && !data.location.startsWith('http') ? data.location : '—'),
     ownerEmail: ownerEmail || '—',
     logo,
     image: logo,
     location: data.location || data.coordinates || data.coords,
+    locationUrl,
     coords,
     raw: data,
   };
@@ -145,8 +151,18 @@ export const RestaurantService = {
   },
 
   async update(id: string, updates: Partial<Restaurant>): Promise<void> {
+    const parsedFromUrl = updates.locationUrl
+      ? extractCoordinatesFromText(updates.locationUrl)
+      : null;
+
     localRestaurantsCache = localRestaurantsCache.map((r) =>
-      r.id === id ? { ...r, ...updates } : r
+      r.id === id
+        ? {
+            ...r,
+            ...updates,
+            ...(parsedFromUrl ? { coords: parsedFromUrl } : {}),
+          }
+        : r
     );
 
     if (isFirebaseConfigured) {
@@ -168,6 +184,15 @@ export const RestaurantService = {
           payload.logo = updates.logo;
           payload.image = updates.logo;
         }
+        if (updates.locationUrl !== undefined) {
+          payload.locationUrl = updates.locationUrl;
+          payload.mapUrl = updates.locationUrl;
+        }
+        if (parsedFromUrl) {
+          payload.lat = parsedFromUrl.lat;
+          payload.lng = parsedFromUrl.lng;
+          payload.coords = parsedFromUrl;
+        }
 
         await updateDoc(docRef, payload);
       } catch (error) {
@@ -178,9 +203,15 @@ export const RestaurantService = {
 
   async create(data: Omit<Restaurant, 'id'>): Promise<Restaurant> {
     const newId = `rest_${Date.now()}`;
+    const parsedFromUrl = data.locationUrl
+      ? extractCoordinatesFromText(data.locationUrl)
+      : null;
+    const coords = data.coords || parsedFromUrl || null;
+
     const newRestaurant: Restaurant = {
       ...data,
       id: newId,
+      coords,
       createdAt: new Date().toISOString(),
     };
 
@@ -201,6 +232,15 @@ export const RestaurantService = {
           subscriptionStatus: data.subscriptionStatus || 'Active',
           isActive: data.isActive,
           address: data.address || '',
+          locationUrl: data.locationUrl || '',
+          mapUrl: data.locationUrl || '',
+          ...(coords
+            ? {
+                lat: coords.lat,
+                lng: coords.lng,
+                coords,
+              }
+            : {}),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });

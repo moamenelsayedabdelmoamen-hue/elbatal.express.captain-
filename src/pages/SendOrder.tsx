@@ -17,6 +17,7 @@ import {
   X,
   ArrowRight,
   ShieldCheck,
+  User as UserIcon,
 } from 'lucide-react';
 import { Restaurant, Captain, CaptainSchedule } from '../types';
 import { RestaurantService } from '../services/restaurantService';
@@ -51,6 +52,8 @@ export const SendOrderPage: React.FC = () => {
   const [isCaptainDropdownOpen, setIsCaptainDropdownOpen] = useState(false);
 
   // Form fields
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryFee, setDeliveryFee] = useState<number | ''>(25);
   const [notes, setNotes] = useState('');
@@ -187,6 +190,8 @@ export const SendOrderPage: React.FC = () => {
         restaurantName: selectedRestaurant.name,
         captainId: selectedCaptain.id,
         captainName: selectedCaptain.name,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
         deliveryAddress: deliveryAddress.trim() || (selectedRestaurant.address ? `توصيل من ${selectedRestaurant.name}` : 'غير محدد'),
         deliveryFee: fee,
         subtotal: 0,
@@ -241,7 +246,7 @@ export const SendOrderPage: React.FC = () => {
             <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
               <span className="font-bold block mb-0.5">خاصية الإسناد المباشر:</span>
-              اختر المطعم المسجل وحدد الكابتن المتاح عبر البحث السريع. يتم تسجيل الطلب في قاعدة البيانات بحالة <span className="font-bold underline">مقبول (Accepted)</span> وإسناده فوراً للكابتن.
+              اختر المطعم المسجل وحدد الكابتن المتاح عبر البحث السريع. يتم تسجيل الطلب في قاعدة البيانات بحالة <span className="font-bold underline">جديد (New)</span> وإسناده للكابتن.
             </div>
           </div>
 
@@ -529,8 +534,43 @@ export const SendOrderPage: React.FC = () => {
           {/* Section: Delivery Details & Fee */}
           <div className="border-t border-zinc-800/80 pt-5 space-y-4">
             <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              تفاصيل التوصيل
+              بيانات العميل وتفاصيل التوصيل
             </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                  اسم العميل (اختياري)
+                </label>
+                <div className="relative">
+                  <UserIcon className="w-4 h-4 text-zinc-500 absolute right-3 top-3 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="اسم العميل المستلم للطلب"
+                    className="w-full bg-[#0a0c12] border border-zinc-700/80 text-zinc-100 placeholder-zinc-500 rounded-xl pr-9 pl-3.5 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                  رقم هاتف العميل (اختياري)
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-zinc-500 absolute right-3 top-3 pointer-events-none" />
+                  <input
+                    type="tel"
+                    dir="ltr"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="010xxxxxxxx"
+                    className="w-full bg-[#0a0c12] border border-zinc-700/80 text-zinc-100 placeholder-zinc-500 rounded-xl pr-9 pl-3.5 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-amber-500 font-mono text-right"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2">

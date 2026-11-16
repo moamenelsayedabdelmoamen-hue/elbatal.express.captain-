@@ -6,7 +6,8 @@ import {
 import { db, isFirebaseConfigured, handleFirestoreError, OperationType } from '../firebase/config';
 import { COLLECTIONS } from './collections';
 import { Captain, Restaurant, Order, NearestCaptainResult, CaptainStatus } from '../types';
-import { extractCoordinates, haversineDistanceKm, formatDistanceArabic, isLocationFresh } from '../utils/geoUtils';
+import { extractCoordinates, extractLocationUrl, haversineDistanceKm, formatDistanceArabic, isLocationFresh } from '../utils/geoUtils';
+import { extractOrderCode, fetchOrderCodesLookup, normalizeOrderStatus } from './orderService';
 
 /**
  * Service for managing real-time map data from Firestore.
@@ -52,20 +53,27 @@ export function mapDocToLiveCaptain(id: string, data: Record<string, any>): Capt
 
 export function mapDocToLiveRestaurant(id: string, data: Record<string, any>): Restaurant {
   const coords = extractCoordinates(data);
+  const locationUrl = extractLocationUrl(data, coords);
 
   return {
     id,
-    name: data.name || data.nameAr || data.restaurantName || data.title || 'بدون اسم',
+    name: data.name || data.nameAr || data.merchantName || data.restaurantName || data.title || 'بدون اسم',
     category: data.category || data.cuisine || data.type || 'عام',
     phone: data.phone || data.phoneNumber || data.contact || '—',
     rating: typeof data.rating === 'number' ? data.rating : 5.0,
     subscriptionStatus: data.subscriptionStatus || 'Active',
     isActive: typeof data.isActive === 'boolean' ? data.isActive : (data.status === 'active' || data.status === 'نشط'),
     createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || new Date().toISOString()),
-    address: data.address || data.addressAr || data.locationName || '—',
+    address:
+      data.address ||
+      data.locationAddress ||
+      data.addressAr ||
+      data.locationName ||
+      (typeof data.location === 'string' && !data.location.startsWith('http') ? data.location : '—'),
     ownerEmail: data.ownerEmail || data.email || '—',
     logo: data.logo || data.logoUrl || data.image || data.imageUrl || data.avatar,
     location: data.location || data.coordinates || data.coords,
+    locationUrl,
     coords,
     status: data.status || (data.isActive ? 'active' : 'inactive'),
     raw: data,
@@ -157,11 +165,22 @@ export const LiveMapService = {
       return () => {};
     }
 
+    let isCancelled = false;
+    let orderCodesMap = new Map<string, string>();
+    fetchOrderCodesLookup().then((map) => {
+      if (!isCancelled) {
+        orderCodesMap = map;
+      }
+    });
+
     try {
       const q = query(collection(db, COLLECTIONS.ORDERS));
       const unsubscribe = onSnapshot(
         q,
-        (snapshot) => {
+        async (snapshot) => {
+          if (orderCodesMap.size === 0) {
+            orderCodesMap = await fetchOrderCodesLookup();
+          }
           const list: Order[] = [];
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
@@ -169,20 +188,34 @@ export const LiveMapService = {
             // Active orders are not delivered and not cancelled
             const isCompleted = status === 'delivered' || status === 'cancelled' || status === 'ملغي' || status === 'تم التوصيل';
             if (!isCompleted) {
+              const orderCode = extractOrderCode(docSnap.id, data, orderCodesMap);
+              const receiptPath = String(data.receiptImagePath || data.receipt_image_path || '').trim();
+              const receiptUrl = String(
+                data.receiptImageUrl ||
+                  data.receipt_image_url ||
+                  data.orderImageUrl ||
+                  data.receiptImage ||
+                  receiptPath ||
+                  ''
+              ).trim();
+
               list.push({
                 id: docSnap.id,
-                orderNumber: data.orderNumber || data.orderId || docSnap.id,
+                orderNumber: orderCode,
+                orderCode,
                 restaurantId: data.restaurantId || data.restaurant?.id || '',
-                restaurantName: data.restaurantName || data.restaurant?.name || 'مطعم غير محدد',
-                customerName: data.customerName || 'عميل',
-                customerPhone: data.customerPhone || '',
+                restaurantName: data.restaurantName || data.restaurant?.name || 'تاجر غير محدد',
+                customerName: data.customerName || data.customer_name || data.clientName || '',
+                customerPhone: data.customerPhone || data.customer_phone || data.clientPhone || data.phone || '',
                 deliveryAddress: data.deliveryAddress || data.address || '',
                 captainId: data.captainId || data.captain?.id || '',
                 captainName: data.captainName || data.captain?.name || '',
+                receiptImageUrl: receiptUrl,
+                receiptImagePath: receiptPath,
                 subtotal: Number(data.subtotal || 0),
                 deliveryFee: Number(data.deliveryFee || data.delivery_fee || 0),
                 total: Number(data.total || 0),
-                status: data.status || 'Accepted',
+                status: normalizeOrderStatus(data.status),
                 createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || new Date().toISOString()),
                 raw: data,
               });
@@ -196,10 +229,15 @@ export const LiveMapService = {
         }
       );
 
-      return unsubscribe;
+      return () => {
+        isCancelled = true;
+        unsubscribe();
+      };
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, COLLECTIONS.ORDERS);
-      return () => {};
+      return () => {
+        isCancelled = true;
+      };
     }
   },
 

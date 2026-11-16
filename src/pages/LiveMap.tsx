@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   MapPin,
   Bike,
@@ -23,6 +24,7 @@ import { LiveMapService } from '../services/liveMapService';
 import { Restaurant, Captain, Order } from '../types';
 
 export const LiveMapPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
@@ -81,6 +83,36 @@ export const LiveMapPage: React.FC = () => {
       unsubOrders();
     };
   }, []);
+
+  // Auto-select restaurant when navigated from Merchants page (/live-map?restaurantId=...)
+  const restaurantQueryParam = searchParams.get('restaurantId') || searchParams.get('restaurant');
+  const handledRestaurantQueryRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!restaurantQueryParam) {
+      handledRestaurantQueryRef.current = null;
+      return;
+    }
+    if (restaurants.length === 0) return;
+
+    const matched = restaurants.find(
+      (r) =>
+        r.id === restaurantQueryParam ||
+        r.name.trim().toLowerCase() === restaurantQueryParam.trim().toLowerCase()
+    );
+
+    if (matched) {
+      if (handledRestaurantQueryRef.current !== restaurantQueryParam) {
+        handledRestaurantQueryRef.current = restaurantQueryParam;
+        setSelectedRestaurant(matched);
+        setSelectedCaptain(null);
+        setSelectedOrder(null);
+        setFilter((prev) => (prev === 'all' || prev === 'restaurants' ? prev : 'all'));
+      } else if (selectedRestaurant?.id === matched.id) {
+        setSelectedRestaurant(matched);
+      }
+    }
+  }, [restaurantQueryParam, restaurants, selectedRestaurant?.id]);
 
   // 2. Computed Live Statistics
   const stats = useMemo(() => {

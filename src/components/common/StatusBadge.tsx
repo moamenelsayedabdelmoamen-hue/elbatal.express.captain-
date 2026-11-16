@@ -110,7 +110,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, type = 'order'
     case 'New':
       return (
         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
-          جديد
+          جديد (New)
         </span>
       );
     case 'Accepted':

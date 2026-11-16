@@ -374,13 +374,18 @@ export const DashboardPage: React.FC = () => {
                 {recentOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-zinc-900/50 transition-colors">
                     <td className="py-3.5 px-4 font-mono font-bold text-amber-400 text-xs">
-                      {order.orderNumber}
+                      {order.orderNumber || '—'}
                     </td>
                     <td className="py-3.5 px-4 font-bold text-zinc-200">
                       {order.restaurantName}
                     </td>
                     <td className="py-3.5 px-4 text-zinc-300 text-xs">
-                      {order.customerName}
+                      <div className="font-bold">{order.customerName || '—'}</div>
+                      {order.customerPhone && (
+                        <div className="text-[11px] text-sky-400 font-mono" dir="ltr">
+                          {order.customerPhone}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-zinc-300 text-xs">
                       {order.captainName || '—'}

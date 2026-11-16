@@ -49,6 +49,7 @@ export interface Restaurant {
   logo?: string;
   image?: string;
   location?: any; // GeoPoint or { lat, lng } or { latitude, longitude }
+  locationUrl?: string;
   coords?: { lat: number; lng: number } | null;
   activeOrdersCount?: number;
   status?: string;
@@ -110,6 +111,7 @@ export interface OrderItem {
 export interface Order {
   id: string;
   orderNumber: string;
+  orderCode?: string;
   restaurantId?: string;
   restaurantName: string;
   customerName: string;
@@ -117,6 +119,8 @@ export interface Order {
   deliveryAddress?: string;
   captainId?: string;
   captainName?: string;
+  receiptImageUrl?: string;
+  receiptImagePath?: string;
   subtotal: number;
   deliveryFee: number;
   total: number;

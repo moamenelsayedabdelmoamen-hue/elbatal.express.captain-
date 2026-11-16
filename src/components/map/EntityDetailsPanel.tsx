@@ -120,6 +120,33 @@ export const EntityDetailsPanel: React.FC<EntityDetailsPanelProps> = ({
             <Clock className="w-4 h-4 text-zinc-500 shrink-0" />
             <span>التقييم: ⭐ {selectedRestaurant.rating || 5.0}</span>
           </div>
+
+          {selectedRestaurant.locationUrl && (
+            <div className="sm:col-span-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-zinc-200">
+              <div className="flex items-center gap-2 min-w-0">
+                <ExternalLink className="w-4 h-4 text-sky-400 shrink-0" />
+                <span className="text-zinc-400 shrink-0">رابط الموقع:</span>
+                <a
+                  href={selectedRestaurant.locationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  dir="ltr"
+                  className="text-sky-400 hover:text-sky-300 font-semibold truncate underline decoration-sky-500/40"
+                >
+                  {selectedRestaurant.locationUrl}
+                </a>
+              </div>
+              {selectedRestaurant.coords ? (
+                <span className="text-[10px] font-mono text-emerald-400 shrink-0" dir="ltr">
+                  {selectedRestaurant.coords.lat.toFixed(5)}, {selectedRestaurant.coords.lng.toFixed(5)}
+                </span>
+              ) : (
+                <span className="text-[10px] text-amber-300 shrink-0">
+                  رابط مختصر (افتحه في خرائط جوجل)
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Actions */}

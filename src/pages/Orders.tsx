@@ -20,6 +20,10 @@ import {
   MapPin,
   PackageCheck,
   Navigation,
+  User as UserIcon,
+  Phone,
+  Image as ImageIcon,
+  ExternalLink,
 } from 'lucide-react';
 import { Order, OrderStatus, Captain, Restaurant } from '../types';
 import { OrderService, formatDurationArabic } from '../services/orderService';
@@ -29,6 +33,7 @@ import { ShiftService } from '../services/shiftService';
 import { extractCoordinates, haversineDistanceKm, formatDistanceArabic } from '../utils/geoUtils';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { EmptyState } from '../components/common/EmptyState';
+import { FirebaseImage } from '../components/common/FirebaseImage';
 import { useToast } from '../contexts/ToastContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { SendOrderModal } from '../components/orders/SendOrderModal';
@@ -150,6 +155,7 @@ export const OrdersPage: React.FC = () => {
   const [historyDate, setHistoryDate] = useState<string>(getTodayString());
 
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+  const [previewReceiptOrder, setPreviewReceiptOrder] = useState<Order | null>(null);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
 
   const todayStr = useMemo(() => getTodayString(), []);
@@ -254,10 +260,11 @@ export const OrdersPage: React.FC = () => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
-        o.orderNumber.toLowerCase().includes(q) ||
+        (o.orderNumber && o.orderNumber.toLowerCase().includes(q)) ||
         (o.restaurantName && o.restaurantName.toLowerCase().includes(q)) ||
         (o.captainName && o.captainName.toLowerCase().includes(q)) ||
         (o.customerName && o.customerName.toLowerCase().includes(q)) ||
+        (o.customerPhone && o.customerPhone.toLowerCase().includes(q)) ||
         (o.deliveryAddress && o.deliveryAddress.toLowerCase().includes(q));
 
       const matchesStatus = statusFilter === 'all' ? true : o.status === statusFilter;
@@ -320,7 +327,7 @@ export const OrdersPage: React.FC = () => {
       toastError(reason);
       await notifyCaptainAssignmentFailed({
         orderId,
-        orderNumber: targetOrder?.orderNumber || orderId,
+        orderNumber: targetOrder?.orderNumber || '—',
         restaurantName: targetOrder?.restaurantName || 'تاجر',
         reason,
       });
@@ -336,7 +343,7 @@ export const OrdersPage: React.FC = () => {
         toastError(reason);
         await notifyCaptainAssignmentFailed({
           orderId,
-          orderNumber: targetOrder?.orderNumber || orderId,
+          orderNumber: targetOrder?.orderNumber || '—',
           restaurantName: targetOrder?.restaurantName || 'تاجر',
           reason,
         });
@@ -353,9 +360,8 @@ export const OrdersPage: React.FC = () => {
                 ...o,
                 captainId,
                 captainName,
-                status: o.status === 'New' ? 'Accepted' : o.status,
-                acceptedAt: result.acceptedAt,
-                assignedAt: result.acceptedAt,
+                status: result.status,
+                assignedAt: result.assignedAt,
                 captainSearchDuration: result.captainSearchDuration,
                 captainSearchSeconds: result.captainSearchSeconds,
                 distanceToMerchantKm: result.distanceToMerchantKm,
@@ -370,9 +376,8 @@ export const OrdersPage: React.FC = () => {
                 ...prev,
                 captainId,
                 captainName,
-                status: prev.status === 'New' ? 'Accepted' : prev.status,
-                acceptedAt: result.acceptedAt,
-                assignedAt: result.acceptedAt,
+                status: result.status,
+                assignedAt: result.assignedAt,
                 captainSearchDuration: result.captainSearchDuration,
                 captainSearchSeconds: result.captainSearchSeconds,
                 distanceToMerchantKm: result.distanceToMerchantKm,
@@ -724,7 +729,7 @@ export const OrdersPage: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="البحث برقم الطلب، التاجر، أو الكابتن..."
+              placeholder="البحث برقم الطلب، التاجر، العميل، الهاتف، أو الكابتن..."
               className="w-full bg-[#0a0c12] border border-zinc-800 text-zinc-100 placeholder-zinc-500 rounded-xl py-2.5 pr-10 pl-4 text-xs sm:text-sm focus:outline-none focus:border-amber-500 transition-colors"
             />
           </div>
@@ -816,6 +821,9 @@ export const OrdersPage: React.FC = () => {
                 <tr className="border-b border-zinc-800 text-xs font-bold text-zinc-400 bg-zinc-950/40 whitespace-nowrap">
                   <th className="py-4 px-3.5">رقم الطلب</th>
                   <th className="py-4 px-3.5">التاجر</th>
+                  <th className="py-4 px-3.5">اسم العميل</th>
+                  <th className="py-4 px-3.5">رقم الهاتف</th>
+                  <th className="py-4 px-3.5">صورة الإيصال</th>
                   <th className="py-4 px-3.5">الكابتن / ابحث عن كابتن</th>
                   <th className="py-4 px-3.5">رسوم التوصيل</th>
                   <th className="py-4 px-3.5">توقيت إنشاء الطلب</th>
@@ -831,12 +839,13 @@ export const OrdersPage: React.FC = () => {
               <tbody className="divide-y divide-zinc-800/60">
                 {filteredOrders.map((order) => {
                   const isSearching = searchingOrderId === order.id;
+                  const receiptSrc = order.receiptImageUrl || order.receiptImagePath;
 
                   return (
                     <tr key={order.id} className="hover:bg-zinc-900/40 transition-colors">
-                      {/* رقم الطلب */}
+                      {/* رقم الطلب (من order_codes بدون إظهار orderId) */}
                       <td className="py-4 px-3.5 font-mono font-bold text-amber-400 text-xs whitespace-nowrap">
-                        {order.orderNumber}
+                        {order.orderNumber || '—'}
                       </td>
 
                       {/* التاجر */}
@@ -845,6 +854,58 @@ export const OrdersPage: React.FC = () => {
                           <UtensilsCrossed className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                           <span>{order.restaurantName}</span>
                         </div>
+                      </td>
+
+                      {/* اسم العميل */}
+                      <td className="py-4 px-3.5 text-xs font-bold text-zinc-200 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <UserIcon className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <span>{order.customerName || '—'}</span>
+                        </div>
+                      </td>
+
+                      {/* رقم الهاتف */}
+                      <td className="py-4 px-3.5 text-xs whitespace-nowrap font-mono" dir="ltr">
+                        {order.customerPhone ? (
+                          <a
+                            href={`tel:${order.customerPhone}`}
+                            className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 hover:underline font-bold"
+                          >
+                            <Phone className="w-3 h-3 shrink-0" />
+                            <span>{order.customerPhone}</span>
+                          </a>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </td>
+
+                      {/* صورة إيصال الطلب المرفوعة من تطبيق الكابتن */}
+                      <td className="py-4 px-3.5 whitespace-nowrap">
+                        {receiptSrc ? (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewReceiptOrder(order)}
+                            className="group relative inline-flex items-center gap-2 p-1 rounded-xl bg-zinc-900/90 border border-zinc-700/80 hover:border-amber-500/50 transition-all cursor-pointer"
+                            title="اضغط لعرض صورة الإيصال كاملة"
+                          >
+                            <FirebaseImage
+                              src={receiptSrc}
+                              alt={`إيصال الطلب ${order.orderNumber || ''}`}
+                              className="w-10 h-10 rounded-lg border border-zinc-800 bg-zinc-950"
+                              fallbackContent={
+                                <ImageIcon className="w-4 h-4 text-zinc-500" />
+                              }
+                            />
+                            <span className="text-[11px] font-bold text-amber-400 group-hover:text-amber-300 pl-1.5">
+                              عرض الإيصال
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500 px-2 py-1 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
+                            <ImageIcon className="w-3 h-3" />
+                            <span>غير مرفوع</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* الكابتن + خاصية ابحث عن كابتن */}
@@ -1049,7 +1110,9 @@ export const OrdersPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-black text-white">{viewingOrder.orderNumber}</h3>
+                  <h3 className="text-lg font-black text-white font-mono">
+                    {viewingOrder.orderNumber || '—'}
+                  </h3>
                   <StatusBadge status={viewingOrder.status} type="order" />
                 </div>
                 <p className="text-xs text-zinc-400">
@@ -1058,7 +1121,7 @@ export const OrdersPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Merchant & Captain Assignment Card */}
+            {/* Merchant, Customer & Captain Assignment Card */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-5">
               <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
                 <span className="text-zinc-500 block mb-1">اسم التاجر</span>
@@ -1097,10 +1160,77 @@ export const OrdersPage: React.FC = () => {
                 </select>
               </div>
 
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-zinc-500 block mb-1">اسم العميل</span>
+                <span className="font-bold text-zinc-200 flex items-center gap-1.5">
+                  <UserIcon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{viewingOrder.customerName || '—'}</span>
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-zinc-500 block mb-1">رقم هاتف العميل</span>
+                {viewingOrder.customerPhone ? (
+                  <a
+                    href={`tel:${viewingOrder.customerPhone}`}
+                    className="font-mono font-bold text-sky-400 hover:underline inline-flex items-center gap-1.5"
+                    dir="ltr"
+                  >
+                    <Phone className="w-3.5 h-3.5 shrink-0" />
+                    <span>{viewingOrder.customerPhone}</span>
+                  </a>
+                ) : (
+                  <span className="font-bold text-zinc-400">—</span>
+                )}
+              </div>
+
               {viewingOrder.deliveryAddress && (
                 <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800 sm:col-span-2">
                   <span className="text-zinc-500 block mb-1">عنوان التوصيل</span>
                   <span className="font-bold text-zinc-200">{viewingOrder.deliveryAddress}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Receipt Image Uploaded by Captain */}
+            <div className="mb-5 p-4 rounded-2xl bg-[#0a0c12] border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-amber-400 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  <span>صورة إيصال الطلب (المرفوعة من تطبيق الكابتن)</span>
+                </h4>
+                {(viewingOrder.receiptImageUrl || viewingOrder.receiptImagePath) && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewReceiptOrder(viewingOrder)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>تكبير الصورة</span>
+                  </button>
+                )}
+              </div>
+
+              {viewingOrder.receiptImageUrl || viewingOrder.receiptImagePath ? (
+                <div
+                  onClick={() => setPreviewReceiptOrder(viewingOrder)}
+                  className="rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950/70 flex items-center justify-center p-2 cursor-pointer hover:border-amber-500/40 transition-colors"
+                >
+                  <FirebaseImage
+                    src={viewingOrder.receiptImageUrl || viewingOrder.receiptImagePath}
+                    fallbackStoragePaths={[`orders/${viewingOrder.id}/receipts`]}
+                    alt={`صورة إيصال الطلب ${viewingOrder.orderNumber || ''}`}
+                    className="w-full max-h-64 object-contain rounded-lg"
+                    fallbackContent={
+                      <div className="py-8 text-center text-xs text-zinc-500">
+                        تعذر تحميل صورة الإيصال
+                      </div>
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="py-6 text-center rounded-xl border border-dashed border-zinc-800 text-xs text-zinc-500">
+                  لم يقم الكابتن برفع صورة إيصال لهذا الطلب بعد
                 </div>
               )}
             </div>
@@ -1219,6 +1349,53 @@ export const OrdersPage: React.FC = () => {
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Lightbox Preview Modal */}
+      {previewReceiptOrder && (
+        <div
+          onClick={() => setPreviewReceiptOrder(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl bg-[#11141c] border border-zinc-800 rounded-3xl p-5 shadow-2xl relative"
+          >
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-amber-400" />
+                  <span>صورة إيصال الطلب {previewReceiptOrder.orderNumber || ''}</span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  العميل: {previewReceiptOrder.customerName || '—'}{' '}
+                  {previewReceiptOrder.customerPhone ? `• ${previewReceiptOrder.customerPhone}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewReceiptOrder(null)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-zinc-950 border border-zinc-800 p-3 flex items-center justify-center min-h-[260px]">
+              <FirebaseImage
+                src={previewReceiptOrder.receiptImageUrl || previewReceiptOrder.receiptImagePath}
+                fallbackStoragePaths={[`orders/${previewReceiptOrder.id}/receipts`]}
+                alt={`إيصال الطلب ${previewReceiptOrder.orderNumber || ''}`}
+                className="w-full max-h-[70vh] object-contain rounded-xl"
+                fallbackContent={
+                  <div className="py-12 text-center text-xs text-zinc-500">
+                    تعذر عرض صورة الإيصال
+                  </div>
+                }
+              />
             </div>
           </div>
         </div>
