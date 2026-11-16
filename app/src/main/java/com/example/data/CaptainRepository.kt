@@ -256,22 +256,8 @@ class CaptainRepository(
                 }
             }
 
-            // 1. Available pending orders (matches firestore.rules isAvailablePendingOrder)
-            ordersListenerRegistrations += firestore.collection("orders")
-                .whereEqualTo("status", "pending")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[FirestoreOrdersListener] pending query notice: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null) {
-                        val removed = snapshot.documentChanges
-                            .filter { it.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED }
-                            .map { it.document }
-                        processOrderDocuments(snapshot.documents, removed)
-                    }
-                }
-
+            // Orders are dispatched server-side to a specific captain.
+            // Never query the global pending queue from a captain client.
             // 2. Captain's own assigned / offered orders (matches firestore.rules isOrderAssignedOrOfferedToCaptain)
             for (field in listOf("captainId", "driverId", "offeredCaptainId")) {
                 ordersListenerRegistrations += firestore.collection("orders")
@@ -297,35 +283,18 @@ class CaptainRepository(
      */
     suspend fun queryPendingOrdersFromFirestore(): Result<List<OrderEntity>> {
         return try {
-            Log.i("CaptainRepository", "[FirestoreQuery] Executing query on 'orders' collection filtering by: status == 'pending'...")
-            val querySnapshot = firestore.collection("orders")
+            val uid = firebaseAuth.currentUser?.uid
+                ?: return Result.failure(IllegalStateException("يجب تسجيل الدخول أولاً"))
+            val snapshot = firestore.collection("orders")
+                .whereEqualTo("offeredCaptainId", uid)
                 .whereEqualTo("status", "pending")
                 .get()
                 .await()
-
-            val docs = querySnapshot.documents
-            Log.i("CaptainRepository", "[FirestoreQuery] Query 'status == pending' returned ${docs.size} documents (source=${if (querySnapshot.metadata.isFromCache) "cache" else "server"})")
-
-            val pendingList = mutableListOf<OrderEntity>()
-            for (doc in docs) {
-                val order = doc.toOrderEntity()
-                if (order != null) {
-                    val captId = doc.safeString(
-                        "captainId", "captain_id", "driverId", "driver_id",
-                        "assignedCaptainId", "assignedDriverId", "captainUid",
-                        "driverUid", "assignedCaptainPhone", "driverPhone", "captain_phone"
-                    )
-                    val rawStatus = doc.safeString("status", default = "pending")
-                    val isUnassigned = isPlaceholderOrUnassigned(captId)
-                    Log.d("CaptainRepository", "[FirestoreQuery] -> Pending Doc ID: ${doc.id}, orderNumber: ${order.orderNumber}, rawStatus: '$rawStatus', unassigned: $isUnassigned")
-                    val finalOrder = order.copy(status = OrderStatus.PENDING)
-                    orderDao.upsertByFirestoreId(finalOrder)
-                    pendingList.add(finalOrder)
-                }
-            }
-            Result.success(pendingList)
+            val pending = snapshot.documents.mapNotNull { it.toOrderEntity() }
+            pending.forEach { orderDao.upsertByFirestoreId(it) }
+            Result.success(pending)
         } catch (e: Exception) {
-            Log.e("CaptainRepository", "[FirestoreQuery] Query for status=='pending' failed: ${e.message}", e)
+            Log.e("CaptainRepository", "[FirestoreQuery] Scoped offered-order query failed: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -347,19 +316,7 @@ class CaptainRepository(
             Log.i("CaptainRepository", "[FirestoreSync] Syncing scoped orders for captain UID: $myUid...")
             val matchedDocs = linkedMapOf<String, DocumentSnapshot>()
 
-            // 1. Available pending orders
-            try {
-                val pendingSnapshot = firestore.collection("orders")
-                    .whereEqualTo("status", "pending")
-                    .get()
-                    .await()
-                for (doc in pendingSnapshot.documents) {
-                    matchedDocs[doc.id] = doc
-                }
-            } catch (e: Exception) {
-                Log.w("CaptainRepository", "[FirestoreSync] status=='pending' query notice: ${e.message}")
-            }
-
+            // Only fetch orders explicitly assigned/offered to this authenticated captain.
             // 2. Captain's own assigned / offered orders
             for (field in listOf("captainId", "driverId", "captainUid", "assignedCaptainId", "offeredCaptainId")) {
                 try {
