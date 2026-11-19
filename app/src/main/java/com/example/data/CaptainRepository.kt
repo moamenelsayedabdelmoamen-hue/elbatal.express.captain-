@@ -638,7 +638,7 @@ class CaptainRepository(
                 _isShiftSynced.value = true
                 _isShiftNetworkConnected.value = true
                 Log.i("CaptainRepository", "[ShiftSync] Applied ${canonicalShifts.size} shifts from canonical schedule")
-                return@try Result.success(canonicalShifts)
+                return Result.success(canonicalShifts)
             }
 
             // Legacy fallback is used only when the canonical admin schedule document is absent.
