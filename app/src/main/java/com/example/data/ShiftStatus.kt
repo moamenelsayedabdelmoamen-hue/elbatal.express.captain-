@@ -195,10 +195,26 @@ object ShiftManager {
         val totalMinutes = Math.round(hours * 60.0).toInt()
         val wholeHours = totalMinutes / 60
         val remainingMinutes = totalMinutes % 60
+        val hoursLabel = when (wholeHours) {
+            1 -> "ساعة"
+            2 -> "ساعتين"
+            in 3..10 -> "ساعات"
+            else -> "ساعة"
+        }
+        val minutesLabel = when (remainingMinutes) {
+            1 -> "دقيقة"
+            2 -> "دقيقتين"
+            in 3..10 -> "دقائق"
+            else -> "دقيقة"
+        }
         return when {
-            wholeHours == 0 -> "$remainingMinutes دقيقة عمل"
-            remainingMinutes == 0 -> "$wholeHours ساعة عمل"
-            else -> "$wholeHours ساعة و $remainingMinutes دقيقة عمل"
+            wholeHours == 0 -> "$remainingMinutes $minutesLabel عمل"
+            remainingMinutes == 0 && wholeHours == 1 -> "ساعة عمل واحدة"
+            remainingMinutes == 0 && wholeHours == 2 -> "ساعتين عمل"
+            remainingMinutes == 0 -> "$wholeHours $hoursLabel عمل"
+            wholeHours == 1 -> "ساعة و $remainingMinutes $minutesLabel عمل"
+            wholeHours == 2 -> "ساعتين و $remainingMinutes $minutesLabel عمل"
+            else -> "$wholeHours $hoursLabel و $remainingMinutes $minutesLabel عمل"
         }
     }
 
