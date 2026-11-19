@@ -833,8 +833,8 @@ fun extractShiftsFromMap(docData: Map<String, Any?>, fallbackId: String, captain
             ShiftEntity(
                 id = "${captainUid}_day_$day", captainUid = captainUid, dayOfWeek = day,
                 dayNameArabic = name,
-                startTime = if (fridayOff) "00:00" else (rootStart ?: subtractHoursFromTime(rootEnd!!, rootHours ?: 0)),
-                endTime = if (fridayOff) "00:00" else (rootEnd ?: addHoursToTime(rootStart!!, rootHours ?: 0)),
+                startTime = if (fridayOff) "00:00" else (rootStart ?: subtractHoursFromTime(rootEnd!!, rootHours ?: 0.0)),
+                endTime = if (fridayOff) "00:00" else (rootEnd ?: addHoursToTime(rootStart!!, rootHours ?: 0.0)),
                 isDayOff = fridayOff,
                 notes = if (fridayOff) "عطلة أسبوعية رسمية" else "شفت عمل معتمد من لوحة التحكم"
             )
