@@ -749,7 +749,7 @@ private fun parseDayScheduleMap(
 }
 
 fun extractShiftsFromMap(docData: Map<String, Any?>, fallbackId: String, captainUid: String): List<ShiftEntity> {
-    val containerField = docData["weeklySchedule"] ?: docData["weekly_schedule"] ?: docData["schedule"]
+    val containerField = docData["weeklySchedule"] ?: docData["weekly_schedule"] ?: docData["shifts"] ?: docData["schedule"]
         ?: docData["workShifts"] ?: docData["work_shifts"] ?: docData["days"] ?: docData["schedules"]
         ?: docData["workingHours"] ?: docData["working_hours"] ?: docData["shiftsSchedule"] ?: docData["shift_schedule"]
         ?: docData["shiftSchedule"] ?: docData["shifts_schedule"] ?: docData["shiftList"] ?: docData["shiftsList"]
