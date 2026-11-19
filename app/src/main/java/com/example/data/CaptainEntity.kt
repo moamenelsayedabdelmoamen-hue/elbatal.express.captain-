@@ -23,12 +23,22 @@ data class CaptainEntity(
     val status: String = "active",
     val vehicleType: String = "سكوتر / دراجة نارية",
     val licensePlate: String = "أ ب ج 1 2 3",
+
+    // Account and captain profile information
+    val address: String = "",
+    val accountType: String = "captain",
+
+    // Availability and shift information
+    val availabilityStatus: String = "offline",
+    val shiftStatus: String = "outside_shift",
+
     val rating: Float = 5.0f,
     val totalOrdersCount: Int = 0,
     val walletBalance: Double = 0.0,
     val isOnline: Boolean = true,
     val isLoggedIn: Boolean = false
 ) {
+
     val effectiveProfileImage: String
         get() = profileImagePath.ifBlank { avatarUri }
 
@@ -42,5 +52,6 @@ data class CaptainEntity(
         get() = licenseImagePath.ifBlank { licenseUrl }
 
     val isNationalIdComplete: Boolean
-        get() = effectiveIdFrontImage.isNotBlank() && effectiveIdBackImage.isNotBlank()
+        get() = effectiveIdFrontImage.isNotBlank() &&
+                effectiveIdBackImage.isNotBlank()
 }

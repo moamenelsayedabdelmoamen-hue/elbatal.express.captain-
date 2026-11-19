@@ -50,19 +50,30 @@ async function seedBaseEcosystem() {
       email: 'admin@elbatal.com',
     });
 
-    // Provision two Merchant / Restaurant accounts
-    await setDoc(doc(adminDb, 'restaurants', 'merchant_1'), {
-      name: 'مطعم البطل الأول',
-      phone: '01000000001',
-      address: 'مدينة نصر',
-      isOpen: true,
-    });
-    await setDoc(doc(adminDb, 'restaurants', 'merchant_2'), {
-      name: 'مطعم الشرق الثاني',
-      phone: '01000000002',
-      address: 'المعادي',
-      isOpen: true,
-    });
+  // Provision two canonical Merchant accounts
+await setDoc(doc(adminDb, 'merchants', 'merchant_1'), {
+  uid: 'merchant_1',
+  accountType: 'merchant',
+  role: 'merchant',
+  name: 'مطعم البطل الأول',
+  email: 'merchant1@elbatal.com',
+  phone: '01000000001',
+  address: 'مدينة نصر',
+  status: 'active',
+  isOpen: true,
+});
+
+await setDoc(doc(adminDb, 'merchants', 'merchant_2'), {
+  uid: 'merchant_2',
+  accountType: 'merchant',
+  role: 'merchant',
+  name: 'مطعم الشرق الثاني',
+  email: 'merchant2@elbatal.com',
+  phone: '01000000002',
+  address: 'المعادي',
+  status: 'active',
+  isOpen: true,
+});
 
     // Provision two distinct Captain accounts (captain_1 actively linked to merchant_1; captain_2 unlinked)
     await setDoc(doc(adminDb, 'captains', 'captain_1'), {
@@ -71,6 +82,7 @@ async function seedBaseEcosystem() {
       fullName: 'كابتن أحمد',
       phone: '01011111111',
       email: 'captain1@elbatal.com',
+      accountType: 'captain',
       role: 'captain',
       status: 'active',
       presenceStatus: 'on_trip',
@@ -90,6 +102,7 @@ async function seedBaseEcosystem() {
       fullName: 'كابتن محمد',
       phone: '01022222222',
       email: 'captain2@elbatal.com',
+      accountType: 'captain',
       role: 'captain',
       status: 'active',
       presenceStatus: 'available',
@@ -114,6 +127,8 @@ async function seedBaseEcosystem() {
       orderNumber: 'EXP-100',
       status: 'pending',
       captainId: '',
+      offeredCaptainId: 'captain_1',
+      eligibleCaptainIds: ['captain_1', 'captain_2'],
       merchantId: 'merchant_1',
       customerId: 'user_1',
       deliveryFee: 30,
@@ -443,10 +458,16 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
       })
     );
 
-    // Captain 1 CAN run scoped queries for pending orders and own assigned orders,
+    // Captain 1 CAN run scoped queries for eligible pending orders and own assigned orders,
     // CANNOT read another captain's order, and CANNOT mutate ANY order directly in Firestore!
     const pendingSnap = await assertSucceeds(
-      getDocs(query(collection(cap1Db, 'orders'), where('status', '==', 'pending')))
+      getDocs(
+        query(
+          collection(cap1Db, 'orders'),
+          where('status', '==', 'pending'),
+          where('eligibleCaptainIds', 'array-contains', 'captain_1')
+        )
+      )
     );
     assert.equal(pendingSnap.size, 1);
 
@@ -457,12 +478,25 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
 
     await assertFails(getDoc(doc(cap1Db, 'orders', 'order_c2_m2')));
     await assertFails(updateDoc(doc(cap1Db, 'orders', 'order_pending_open'), { status: 'accepted', captainId: 'captain_1' }));
-    await assertFails(updateDoc(doc(cap1Db, 'orders', 'order_picked_up_c1'), { status: 'delivered' }));
+    await assertFails(updateDoc(doc(cap1Db, 'orders', 'order_picked_up_c1'), { status: 'arrived_at_merchant' }));
+    await assertFails(updateDoc(doc(cap1Db, 'orders', 'order_picked_up_c1'), { status: 'delivered', deliveryFee: 9999 }));
+    await assertFails(setDoc(doc(cap1Db, 'orders', 'forged_order'), { status: 'pending', merchantId: 'merchant_1' }));
+    await assertFails(deleteDoc(doc(cap1Db, 'orders', 'order_picked_up_c1')));
 
-    // Regular users and captains CANNOT create/modify/delete restaurants
+    // Regular users and captains CANNOT create/modify/delete restaurants, merchants, or legacy drivers
     await assertFails(updateDoc(doc(user1Db, 'restaurants', 'merchant_1'), { name: 'Hacked' }));
     await assertFails(updateDoc(doc(cap1Db, 'restaurants', 'merchant_1'), { isOpen: false }));
     await assertFails(setDoc(doc(user1Db, 'restaurants', 'fake_rest'), { name: 'Fake' }));
+    await assertFails(setDoc(doc(cap1Db, 'merchants', 'captain_1'), { name: 'Spoof Merchant' }));
+    await assertFails(setDoc(doc(cap1Db, 'drivers', 'captain_1'), { uid: 'captain_1', accountType: 'captain' }));
+
+    // Merchant CANNOT read captain PII docs or register themselves in captains
+    await assertFails(getDoc(doc(merch1Db, 'captains', 'captain_1')));
+    await assertFails(setDoc(doc(merch1Db, 'captains', 'merchant_1'), { uid: 'merchant_1', accountType: 'captain', status: 'pending' }));
+
+    // Captain CANNOT mutate accountType or claim emailVerified=true without verified token
+    await assertFails(updateDoc(doc(cap1Db, 'captains', 'captain_1'), { accountType: 'merchant' }));
+    await assertFails(updateDoc(doc(cap1Db, 'captains', 'captain_1'), { emailVerified: true }));
 
     // Merchant 1 CAN update allowed store info on their own restaurant, CANNOT update Merchant 2's restaurant
     await assertSucceeds(updateDoc(doc(merch1Db, 'restaurants', 'merchant_1'), { isOpen: false }));
