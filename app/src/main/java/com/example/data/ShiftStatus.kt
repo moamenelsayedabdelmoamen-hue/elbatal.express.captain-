@@ -177,10 +177,10 @@ object ShiftManager {
         if (shift.isDayOff) return 0.0
         val startMin = parseTimeToMinutes(shift.startTime)
         val endMin = parseTimeToMinutes(shift.endTime)
-        val diffMin = if (endMin >= startMin) {
+        val diffMin = if (endMin > startMin) {
             endMin - startMin
         } else {
-            // Overnight shift crossing midnight
+            // End at or before start means the shift finishes on the following day.
             (1440 - startMin) + endMin
         }
         return diffMin / 60.0
@@ -191,14 +191,30 @@ object ShiftManager {
      * Handles integers and fractions (e.g. 8.0 -> "8 ساعات عمل", 7.5 -> "7.5 ساعة عمل", 1.0 -> "ساعة عمل واحدة")
      */
     fun formatShiftDurationArabic(hours: Double): String {
-        if (hours <= 0.0) return "0 ساعة"
-        val isInt = (hours % 1.0 == 0.0)
-        val formattedNum = if (isInt) "${hours.toInt()}" else String.format(Locale.getDefault(), "%.1f", hours)
+        if (hours <= 0.0) return "0 دقيقة عمل"
+        val totalMinutes = Math.round(hours * 60.0).toInt()
+        val wholeHours = totalMinutes / 60
+        val remainingMinutes = totalMinutes % 60
+        val hoursLabel = when (wholeHours) {
+            1 -> "ساعة"
+            2 -> "ساعتين"
+            in 3..10 -> "ساعات"
+            else -> "ساعة"
+        }
+        val minutesLabel = when (remainingMinutes) {
+            1 -> "دقيقة"
+            2 -> "دقيقتين"
+            in 3..10 -> "دقائق"
+            else -> "دقيقة"
+        }
         return when {
-            hours == 1.0 -> "ساعة عمل واحدة"
-            hours == 2.0 -> "ساعتا عمل"
-            hours in 3.0..10.0 && isInt -> "$formattedNum ساعات عمل"
-            else -> "$formattedNum ساعة عمل"
+            wholeHours == 0 -> "$remainingMinutes $minutesLabel عمل"
+            remainingMinutes == 0 && wholeHours == 1 -> "ساعة عمل واحدة"
+            remainingMinutes == 0 && wholeHours == 2 -> "ساعتين عمل"
+            remainingMinutes == 0 -> "$wholeHours $hoursLabel عمل"
+            wholeHours == 1 -> "ساعة و $remainingMinutes $minutesLabel عمل"
+            wholeHours == 2 -> "ساعتين و $remainingMinutes $minutesLabel عمل"
+            else -> "$wholeHours $hoursLabel و $remainingMinutes $minutesLabel عمل"
         }
     }
 
@@ -213,114 +229,84 @@ object ShiftManager {
      * Calculates current ShiftStatus based on the captain's weekly shifts and Cairo current time.
      */
     fun calculateShiftStatus(shifts: List<ShiftEntity>, nowCal: Calendar = getCurrentCairoCalendar()): ShiftStatus {
-        if (shifts.isEmpty()) {
-            return ShiftStatus.NoSchedule()
-        }
-
-        val todayDayOfWeek = nowCal.get(Calendar.DAY_OF_WEEK) // 1..7 (Sunday=1, Monday=2..Saturday=7)
+        if (shifts.isEmpty()) return ShiftStatus.NoSchedule()
+        val todayDayOfWeek = nowCal.get(Calendar.DAY_OF_WEEK)
         val currentMinutes = nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE)
         val currentSeconds = nowCal.get(Calendar.SECOND)
-
-        // Find shift for today
-        val todayShift = shifts.find { it.dayOfWeek == todayDayOfWeek }
-
-        // Also check if yesterday had an overnight shift that is still active now
+        val workingShifts = shifts.filter { !it.isDayOff }
         val yesterdayDayOfWeek = if (todayDayOfWeek == Calendar.SUNDAY) Calendar.SATURDAY else todayDayOfWeek - 1
-        val yesterdayShift = shifts.find { it.dayOfWeek == yesterdayDayOfWeek }
-        if (yesterdayShift != null && !yesterdayShift.isDayOff) {
-            val yStartMin = parseTimeToMinutes(yesterdayShift.startTime)
-            val yEndMin = parseTimeToMinutes(yesterdayShift.endTime)
-            // Overnight check: endMin < startMin and currentMinutes < endMin
-            if (yEndMin < yStartMin && currentMinutes < yEndMin) {
-                val remainingMin = yEndMin - currentMinutes
-                val remainingMillis = (remainingMin * 60L - currentSeconds) * 1000L
-                return ShiftStatus.Active(
-                    shift = yesterdayShift,
-                    remainingMillis = remainingMillis.coerceAtLeast(1000L),
-                    remainingFormatted = formatDurationDetailed(remainingMillis.coerceAtLeast(1000L)),
-                    startFormatted = formatTimeArabic(yesterdayShift.startTime),
-                    endFormatted = formatTimeArabic(yesterdayShift.endTime)
-                )
+
+        val activeYesterday = workingShifts
+            .filter { it.dayOfWeek == yesterdayDayOfWeek }
+            .sortedBy { parseTimeToMinutes(it.startTime) }
+            .firstOrNull { shift ->
+                val start = parseTimeToMinutes(shift.startTime)
+                val end = parseTimeToMinutes(shift.endTime)
+                end <= start && currentMinutes < end
             }
-        }
-
-        // If today is a day off
-        if (todayShift == null || todayShift.isDayOff) {
-            val nextShift = findNextUpcomingShift(shifts, todayDayOfWeek, 0)
-            val nextText = if (nextShift != null) {
-                "الشفت القادم: ${nextShift.dayNameArabic} الساعة ${formatTimeArabic(nextShift.startTime)}"
-            } else {
-                "لا توجد شفتات قادمة محددة"
-            }
-            return ShiftStatus.OutsideShift(
-                nextShift = nextShift,
-                nextShiftDescription = "اليوم عطلة رسمية لك. $nextText",
-                isDayOffToday = true
-            )
-        }
-
-        // Today is a working shift
-        val startMin = parseTimeToMinutes(todayShift.startTime)
-        val endMin = parseTimeToMinutes(todayShift.endTime)
-
-        val isOvernight = endMin < startMin
-
-        val isActiveNow = if (!isOvernight) {
-            currentMinutes in startMin until endMin
-        } else {
-            currentMinutes >= startMin // will continue until tomorrow morning
-        }
-
-        if (isActiveNow) {
-            val remainingMin = if (!isOvernight) {
-                endMin - currentMinutes
-            } else {
-                (1440 - currentMinutes) + endMin
-            }
-            val remainingMillis = (remainingMin * 60L - currentSeconds) * 1000L
+        if (activeYesterday != null) {
+            val remainingMillis = ((parseTimeToMinutes(activeYesterday.endTime) - currentMinutes) * 60L - currentSeconds) * 1000L
+            val safeRemaining = remainingMillis.coerceAtLeast(1000L)
             return ShiftStatus.Active(
-                shift = todayShift,
-                remainingMillis = remainingMillis.coerceAtLeast(1000L),
-                remainingFormatted = formatDurationDetailed(remainingMillis.coerceAtLeast(1000L)),
-                startFormatted = formatTimeArabic(todayShift.startTime),
-                endFormatted = formatTimeArabic(todayShift.endTime)
+                shift = activeYesterday, remainingMillis = safeRemaining,
+                remainingFormatted = formatDurationDetailed(safeRemaining),
+                startFormatted = formatTimeArabic(activeYesterday.startTime),
+                endFormatted = formatTimeArabic(activeYesterday.endTime)
             )
         }
 
-        // If before start time
-        if (currentMinutes < startMin) {
-            val minUntilStart = startMin - currentMinutes
-            val millisUntilStart = (minUntilStart * 60L - currentSeconds) * 1000L
+        val todayShifts = workingShifts
+            .filter { it.dayOfWeek == todayDayOfWeek }
+            .sortedBy { parseTimeToMinutes(it.startTime) }
+        val activeToday = todayShifts.firstOrNull { shift ->
+            val start = parseTimeToMinutes(shift.startTime)
+            val end = parseTimeToMinutes(shift.endTime)
+            if (end > start) currentMinutes in start until end else currentMinutes >= start
+        }
+        if (activeToday != null) {
+            val start = parseTimeToMinutes(activeToday.startTime)
+            val end = parseTimeToMinutes(activeToday.endTime)
+            val remainingMin = if (end > start) end - currentMinutes else (1440 - currentMinutes) + end
+            val remainingMillis = (remainingMin * 60L - currentSeconds) * 1000L
+            val safeRemaining = remainingMillis.coerceAtLeast(1000L)
+            return ShiftStatus.Active(
+                shift = activeToday, remainingMillis = safeRemaining,
+                remainingFormatted = formatDurationDetailed(safeRemaining),
+                startFormatted = formatTimeArabic(activeToday.startTime),
+                endFormatted = formatTimeArabic(activeToday.endTime)
+            )
+        }
 
-            // If within 2 hours before start, show UpcomingSoon ("لم يبدأ شفت العمل بعد")
-            return if (minUntilStart <= 180) { // Up to 3 hours before start
+        val nextToday = todayShifts.firstOrNull { parseTimeToMinutes(it.startTime) > currentMinutes }
+        if (nextToday != null) {
+            val minUntilStart = parseTimeToMinutes(nextToday.startTime) - currentMinutes
+            val millisUntilStart = (minUntilStart * 60L - currentSeconds) * 1000L
+            return if (minUntilStart <= 180) {
                 ShiftStatus.UpcomingSoon(
-                    shift = todayShift,
+                    shift = nextToday,
                     millisUntilStart = millisUntilStart.coerceAtLeast(1000L),
                     countdownFormatted = formatDurationDetailed(millisUntilStart.coerceAtLeast(1000L)),
-                    startFormatted = formatTimeArabic(todayShift.startTime),
-                    endFormatted = formatTimeArabic(todayShift.endTime)
+                    startFormatted = formatTimeArabic(nextToday.startTime),
+                    endFormatted = formatTimeArabic(nextToday.endTime)
                 )
             } else {
                 ShiftStatus.OutsideShift(
-                    nextShift = todayShift,
-                    nextShiftDescription = "يبدأ شفت اليوم الساعة ${formatTimeArabic(todayShift.startTime)} (متبقي ${minUntilStart / 60} ساعة)",
+                    nextShift = nextToday,
+                    nextShiftDescription = "يبدأ شفت اليوم الساعة ${formatTimeArabic(nextToday.startTime)} (متبقي ${minUntilStart / 60} ساعة)",
                     isDayOffToday = false
                 )
             }
         }
 
-        // If after end time today (currentMinutes >= endMin)
         val nextShift = findNextUpcomingShift(shifts, todayDayOfWeek, currentMinutes)
+        val isDayOffToday = todayShifts.isEmpty()
         val nextText = if (nextShift != null) {
             "الشفت القادم: ${nextShift.dayNameArabic} الساعة ${formatTimeArabic(nextShift.startTime)}"
-        } else {
-            "انتهى شفت اليوم. لا توجد شفتات قادمة محددة."
-        }
+        } else "لا توجد شفتات قادمة محددة"
         return ShiftStatus.OutsideShift(
             nextShift = nextShift,
-            nextShiftDescription = "انتهى شفت عمل اليوم. $nextText",
-            isDayOffToday = false
+            nextShiftDescription = if (isDayOffToday) "اليوم عطلة أو لا توجد وردية محددة. $nextText" else "انتهت ورديات اليوم. $nextText",
+            isDayOffToday = isDayOffToday
         )
     }
 
@@ -334,20 +320,16 @@ object ShiftManager {
     ): ShiftEntity? {
         val workingShifts = shifts.filter { !it.isDayOff }
         if (workingShifts.isEmpty()) return null
-
-        // Check if there is another shift later today
-        val laterToday = workingShifts.find {
-            it.dayOfWeek == currentDayOfWeek && parseTimeToMinutes(it.startTime) > currentMinutes
-        }
+        val laterToday = workingShifts
+            .filter { it.dayOfWeek == currentDayOfWeek && parseTimeToMinutes(it.startTime) > currentMinutes }
+            .minByOrNull { parseTimeToMinutes(it.startTime) }
         if (laterToday != null) return laterToday
-
-        // Check following days (up to 7 days ahead)
         for (offset in 1..7) {
             val targetDay = ((currentDayOfWeek - 1 + offset) % 7) + 1
-            val shiftOnDay = workingShifts.find { it.dayOfWeek == targetDay }
-            if (shiftOnDay != null) {
-                return shiftOnDay
-            }
+            val nextForDay = workingShifts
+                .filter { it.dayOfWeek == targetDay }
+                .minByOrNull { parseTimeToMinutes(it.startTime) }
+            if (nextForDay != null) return nextForDay
         }
         return null
     }
@@ -749,200 +731,115 @@ fun formatRawTimeToHHmm(raw: Any?, fallback: String = "09:00"): String {
     return String.format(Locale.getDefault(), "%02d:%02d", h.coerceIn(0, 23), m.coerceIn(0, 59))
 }
 
+private fun parseDayScheduleMap(
+    dayMap: Map<String, Any?>, fallbackId: String, captainUid: String, dayKeyHint: String
+): List<ShiftEntity> {
+    val dayBase = parseShiftMap(dayMap, fallbackId, captainUid, dayKeyHint = dayKeyHint) ?: return emptyList()
+    if (dayBase.isDayOff) {
+        return listOf(dayBase.copy(id = "${captainUid}_${dayKeyHint}_off", startTime = "00:00", endTime = "00:00", isDayOff = true))
+    }
+    val nestedShifts = dayMap["shifts"] as? List<*>
+    if (nestedShifts != null) {
+        return nestedShifts.mapIndexedNotNull { index, item ->
+            val shiftMap = item as? Map<*, *> ?: return@mapIndexedNotNull null
+            val normalizedMap = shiftMap.entries.associate { it.key.toString() to it.value }
+            if (extractRawStartTime(normalizedMap) == null || extractRawEndTime(normalizedMap) == null) return@mapIndexedNotNull null
+            val sourceId = (normalizedMap["id"] ?: normalizedMap["shiftId"] ?: normalizedMap["shift_id"])?.toString()?.trim().orEmpty()
+            val fallbackShiftId = "${captainUid}_${dayKeyHint}_shift_${index + 1}"
+            val parsed = parseShiftMap(normalizedMap, sourceId.ifBlank { fallbackShiftId }, captainUid,
+                dayKeyHint = dayKeyHint, defaultDayOfWeek = dayBase.dayOfWeek) ?: return@mapIndexedNotNull null
+            parsed.copy(
+                id = sourceId.ifBlank { fallbackShiftId },
+                dayOfWeek = dayBase.dayOfWeek,
+                dayNameArabic = dayBase.dayNameArabic,
+                isDayOff = false
+            )
+        }
+    }
+    // Never infer a noon start from a duration-only totalHours field.
+    if (extractRawStartTime(dayMap) != null || extractRawEndTime(dayMap) != null) {
+        val sourceId = dayMap["id"]?.toString()?.trim().orEmpty()
+        return listOf(dayBase.copy(id = sourceId.ifBlank { fallbackId }))
+    }
+    return emptyList()
+}
+
 fun extractShiftsFromMap(docData: Map<String, Any?>, fallbackId: String, captainUid: String): List<ShiftEntity> {
-    // 1. Check container fields: shifts, schedule, weeklySchedule, workShifts, days, workingHours, timetable, etc.
-    val containerField = docData["shifts"]
-        ?: docData["schedule"]
-        ?: docData["weeklySchedule"]
-        ?: docData["weekly_schedule"]
-        ?: docData["workShifts"]
-        ?: docData["work_shifts"]
-        ?: docData["days"]
-        ?: docData["schedules"]
-        ?: docData["workingHours"]
-        ?: docData["working_hours"]
-        ?: docData["shiftsSchedule"]
-        ?: docData["shift_schedule"]
-        ?: docData["shiftSchedule"]
-        ?: docData["shifts_schedule"]
-        ?: docData["shiftList"]
-        ?: docData["shiftsList"]
-        ?: docData["weekly_shifts"]
-        ?: docData["weekShifts"]
-        ?: docData["week_shifts"]
-        ?: docData["timetable"]
-        ?: docData["data"]
-        ?: docData["captainSchedule"]
-        ?: docData["captain_schedule"]
+    val containerField = docData["weeklySchedule"] ?: docData["weekly_schedule"] ?: docData["shifts"] ?: docData["schedule"]
+        ?: docData["workShifts"] ?: docData["work_shifts"] ?: docData["days"] ?: docData["schedules"]
+        ?: docData["workingHours"] ?: docData["working_hours"] ?: docData["shiftsSchedule"] ?: docData["shift_schedule"]
+        ?: docData["shiftSchedule"] ?: docData["shifts_schedule"] ?: docData["shiftList"] ?: docData["shiftsList"]
+        ?: docData["weekShifts"] ?: docData["week_shifts"] ?: docData["timetable"] ?: docData["data"]
+        ?: docData["captainSchedule"] ?: docData["captain_schedule"]
 
-    val parsedDayList = mutableListOf<ShiftEntity>()
-
-    if (containerField is List<*>) {
-        val list = containerField.mapIndexedNotNull { index, item ->
-            if (item is Map<*, *>) {
-                @Suppress("UNCHECKED_CAST")
-                val itemMap = item as Map<String, Any?>
-                val defaultDayCode = when (index) {
-                    0 -> Calendar.SATURDAY
-                    1 -> Calendar.SUNDAY
-                    2 -> Calendar.MONDAY
-                    3 -> Calendar.TUESDAY
-                    4 -> Calendar.WEDNESDAY
-                    5 -> Calendar.THURSDAY
-                    6 -> Calendar.FRIDAY
-                    else -> Calendar.SATURDAY
-                }
-                parseShiftMap(itemMap, "${fallbackId}_day_$index", captainUid, defaultDayOfWeek = defaultDayCode)
-            } else null
+    val parsed = mutableListOf<ShiftEntity>()
+    if (containerField is Map<*, *>) {
+        for ((key, value) in containerField) {
+            val dayKey = key?.toString().orEmpty()
+            val dayMap = value as? Map<*, *> ?: continue
+            val normalized = dayMap.entries.associate { it.key.toString() to it.value }
+            parsed.addAll(parseDayScheduleMap(normalized, "${fallbackId}_$dayKey", captainUid, dayKey))
         }
-        parsedDayList.addAll(list)
-    } else if (containerField is Map<*, *>) {
-        val list = containerField.entries.mapNotNull { entry ->
-            val dayKey = entry.key?.toString() ?: ""
-            val dayData = entry.value
-            if (dayData is Map<*, *>) {
-                @Suppress("UNCHECKED_CAST")
-                parseShiftMap(dayData as Map<String, Any?>, "${fallbackId}_$dayKey", captainUid, dayKeyHint = dayKey)
-            } else null
+    } else if (containerField is List<*>) {
+        containerField.forEachIndexed { index, item ->
+            val shiftMap = item as? Map<*, *> ?: return@forEachIndexed
+            val normalized = shiftMap.entries.associate { it.key.toString() to it.value }
+            val dayHint = normalized["day"]?.toString() ?: normalized["dayOfWeek"]?.toString()
+                ?: normalized["dayName"]?.toString() ?: ""
+            if (normalized["shifts"] is List<*>) {
+                parsed.addAll(parseDayScheduleMap(normalized, "${fallbackId}_$index", captainUid, dayHint))
+            } else {
+                parseShiftMap(normalized, "${fallbackId}_shift_$index", captainUid)?.let { parsed.add(it) }
+            }
         }
-        parsedDayList.addAll(list)
     }
 
-    // 2. Check root-level day keys (e.g. saturday, sunday, mon, tue, السبت, ...)
     val rootDayNames = listOf(
         "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday",
         "sat", "sun", "mon", "tue", "wed", "thu", "fri",
         "السبت", "الأحد", "الاحد", "الإثنين", "الاثنين", "الثلاثاء", "الأربعاء", "الاربعاء", "الخميس", "الجمعة",
         "day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6",
-        "day0", "day1", "day2", "day3", "day4", "day5", "day6",
-        "0", "1", "2", "3", "4", "5", "6"
+        "day0", "day1", "day2", "day3", "day4", "day5", "day6", "0", "1", "2", "3", "4", "5", "6"
     )
     for (dayKey in rootDayNames) {
-        val dayData = docData[dayKey]
-        if (dayData is Map<*, *>) {
-            @Suppress("UNCHECKED_CAST")
-            val entity = parseShiftMap(dayData as Map<String, Any?>, "${fallbackId}_$dayKey", captainUid, dayKeyHint = dayKey)
-            if (entity != null && parsedDayList.none { it.dayOfWeek == entity.dayOfWeek }) {
-                parsedDayList.add(entity)
-            }
-        }
+        val dayMap = docData[dayKey] as? Map<*, *> ?: continue
+        val normalized = dayMap.entries.associate { it.key.toString() to it.value }
+        parsed.addAll(parseDayScheduleMap(normalized, "${fallbackId}_$dayKey", captainUid, dayKey))
+    }
+    if (parsed.isNotEmpty()) {
+        return parsed.distinctBy { it.id }.sortedWith(
+            compareBy<ShiftEntity>({ it.dayOfWeek }, { ShiftManager.parseTimeToMinutes(it.startTime) }, { it.id })
+        )
     }
 
-    // 3. Extract root-level shift times and hours (set when admin updates shift in control panel)
+    // Backward compatibility for legacy documents with one global shift.
     val rootStartRaw = extractRawStartTime(docData)
     val rootEndRaw = extractRawEndTime(docData)
     val rootHours = extractRawHours(docData)
-
-    val rootStartTime = if (rootStartRaw != null) formatRawTimeToHHmm(rootStartRaw, "12:00") else null
-    val rootEndTime = when {
+    val rootStart = rootStartRaw?.let { formatRawTimeToHHmm(it, "12:00") }
+    val rootEnd = when {
         rootEndRaw != null -> formatRawTimeToHHmm(rootEndRaw, "20:00")
-        rootStartTime != null && rootHours != null -> addHoursToTime(rootStartTime, rootHours)
-        rootHours != null -> addHoursToTime("12:00", rootHours)
+        rootStart != null && rootHours != null -> addHoursToTime(rootStart, rootHours)
         else -> null
     }
-
-    // Standard Egyptian week days (Saturday to Friday)
-    val standardWeekDays = listOf(
-        Calendar.SATURDAY to "السبت",
-        Calendar.SUNDAY to "الأحد",
-        Calendar.MONDAY to "الإثنين",
-        Calendar.TUESDAY to "الثلاثاء",
-        Calendar.WEDNESDAY to "الأربعاء",
-        Calendar.THURSDAY to "الخميس",
-        Calendar.FRIDAY to "الجمعة"
-    )
-
-    // 4. If parsedDayList is NOT empty, we MUST preserve the exact database shifts for each day!
-    // Never overwrite them with root times, because each day can have its own start/end/hours in the control panel.
-    if (parsedDayList.isNotEmpty()) {
-        val defaultStart = rootStartTime ?: parsedDayList.firstOrNull { !it.isDayOff }?.startTime ?: "12:00"
-        val defaultEnd = rootEndTime ?: parsedDayList.firstOrNull { !it.isDayOff }?.endTime ?: "20:00"
-
-        val completeWeekList = mutableListOf<ShiftEntity>()
-        for ((dayCode, dayArabic) in standardWeekDays) {
-            val existing = parsedDayList.find { it.dayOfWeek == dayCode }
-            if (existing != null) {
-                completeWeekList.add(existing)
-            } else {
-                val isFriday = (dayCode == Calendar.FRIDAY)
-                completeWeekList.add(
-                    ShiftEntity(
-                        id = "${captainUid}_day_${dayCode}",
-                        captainUid = captainUid,
-                        dayOfWeek = dayCode,
-                        dayNameArabic = dayArabic,
-                        startTime = if (isFriday) "00:00" else defaultStart,
-                        endTime = if (isFriday) "00:00" else defaultEnd,
-                        isDayOff = isFriday,
-                        notes = if (isFriday) "عطلة أسبوعية رسمية" else "شفت عمل معتمد",
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-            }
-        }
-        return completeWeekList
-    }
-
-    // 5. If parsedDayList is empty, but root start/end/hours are present:
-    if (rootStartTime != null || rootEndTime != null || rootHours != null) {
-        val startToApply = rootStartTime ?: "12:00"
-        val endToApply = rootEndTime ?: if (rootHours != null) addHoursToTime(startToApply, rootHours) else "20:00"
-
-        val hasExplicitDay = docData.containsKey("dayOfWeek") || docData.containsKey("day_of_week") ||
-                docData.containsKey("day") || docData.containsKey("dayName") || docData.containsKey("weekday")
-
-        if (hasExplicitDay) {
-            val single = parseShiftMap(docData, fallbackId, captainUid)
-            if (single != null) {
-                return listOf(single)
-            }
-        }
-
-        val offDaysRaw = docData["offDays"] ?: docData["daysOff"] ?: docData["days_off"] ?: docData["holidays"]
-        val isFridayDayOff = when {
-            docData.containsKey("fridayOff") -> (docData["fridayOff"] as? Boolean) ?: true
-            docData.containsKey("friday_off") -> (docData["friday_off"] as? Boolean) ?: true
-            else -> true
-        }
-
-        val completeWeekList = mutableListOf<ShiftEntity>()
-
-        for ((dayCode, dayArabic) in standardWeekDays) {
-            val isFriday = (dayCode == Calendar.FRIDAY)
-
-            val isOff = when {
-                isFriday -> isFridayDayOff
-                offDaysRaw is List<*> -> {
-                    offDaysRaw.any { off ->
-                        val s = off.toString().lowercase()
-                        s.contains(dayArabic) || s.contains(dayCode.toString())
-                    }
-                }
-                else -> false
-            }
-
-            val finalStart = if (isOff) "00:00" else startToApply
-            val finalEnd = if (isOff) "00:00" else endToApply
-            val note = if (isOff) "عطلة أسبوعية رسمية" else "شفت عمل معتمد من لوحة التحكم"
-
-            completeWeekList.add(
-                ShiftEntity(
-                    id = "${captainUid}_day_${dayCode}",
-                    captainUid = captainUid,
-                    dayOfWeek = dayCode,
-                    dayNameArabic = dayArabic,
-                    startTime = finalStart,
-                    endTime = finalEnd,
-                    isDayOff = isOff,
-                    notes = note,
-                    updatedAt = System.currentTimeMillis()
-                )
+    if (rootStart != null || rootEnd != null) {
+        val days = listOf(
+            Calendar.SATURDAY to "السبت", Calendar.SUNDAY to "الأحد", Calendar.MONDAY to "الإثنين",
+            Calendar.TUESDAY to "الثلاثاء", Calendar.WEDNESDAY to "الأربعاء",
+            Calendar.THURSDAY to "الخميس", Calendar.FRIDAY to "الجمعة"
+        )
+        return days.map { (day, name) ->
+            val fridayOff = day == Calendar.FRIDAY
+            ShiftEntity(
+                id = "${captainUid}_day_$day", captainUid = captainUid, dayOfWeek = day,
+                dayNameArabic = name,
+                startTime = if (fridayOff) "00:00" else (rootStart ?: subtractHoursFromTime(rootEnd!!, rootHours ?: 0.0)),
+                endTime = if (fridayOff) "00:00" else (rootEnd ?: addHoursToTime(rootStart!!, rootHours ?: 0.0)),
+                isDayOff = fridayOff,
+                notes = if (fridayOff) "عطلة أسبوعية رسمية" else "شفت عمل معتمد من لوحة التحكم"
             )
         }
-
-        return completeWeekList
     }
-
     return emptyList()
 }
 
@@ -1072,7 +969,9 @@ fun parseShiftMap(
     val notes = (data["notes"] ?: data["note"] ?: "").toString().trim()
     val updated = (data["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
 
-    val shiftCanonicalId = "${captainUid}_day_${dayOfWeek}"
+    val shiftCanonicalId = (data["id"] ?: data["shiftId"] ?: data["shift_id"])
+        ?.toString()?.trim()?.takeIf { it.isNotBlank() }
+        ?: fallbackId.ifBlank { "${captainUid}_day_${dayOfWeek}" }
 
     return ShiftEntity(
         id = shiftCanonicalId,

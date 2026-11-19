@@ -80,13 +80,14 @@ fun ShiftsScreen(
     )
 
     val weekItems = standardWeekDays.map { (dayCode, dayArabic) ->
-        val foundShift = shifts.find { it.dayOfWeek == dayCode }
-        Triple(dayCode, dayArabic, foundShift)
+        val dayShifts = shifts.filter { it.dayOfWeek == dayCode }
+            .sortedBy { ShiftManager.parseTimeToMinutes(it.startTime) }
+        Triple(dayCode, dayArabic, dayShifts)
     }
 
     val totalHours = ShiftManager.calculateWeeklyWorkHours(shifts)
-    val workingDaysCount = shifts.count { !it.isDayOff }
-    val daysOffCount = shifts.count { it.isDayOff }
+    val workingDaysCount = shifts.filter { !it.isDayOff }.map { it.dayOfWeek }.distinct().size
+    val daysOffCount = shifts.filter { it.isDayOff }.map { it.dayOfWeek }.distinct().size
 
     Column(
         modifier = Modifier
@@ -221,7 +222,7 @@ fun ShiftsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (totalHours % 1.0 == 0.0) "${totalHours.toInt()} ساعة" else String.format(Locale.getDefault(), "%.1f ساعة", totalHours),
+                        text = ShiftManager.formatShiftDurationArabic(totalHours),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = HeroYellow
                     )
@@ -281,9 +282,10 @@ fun ShiftsScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // 7 Days List
-        weekItems.forEach { (dayCode, dayArabic, shift) ->
+        weekItems.forEach { (dayCode, dayArabic, dayShifts) ->
             val isToday = (dayCode == todayDayOfWeek)
-            val isDayOff = shift?.isDayOff ?: (dayCode == Calendar.FRIDAY)
+            val workingShifts = dayShifts.filter { !it.isDayOff }
+            val isDayOff = workingShifts.isEmpty() && (dayShifts.any { it.isDayOff } || dayCode == Calendar.FRIDAY)
 
             val borderModifier = if (isToday) {
                 Modifier.border(1.5.dp, HeroYellow, RoundedCornerShape(14.dp))
@@ -336,57 +338,63 @@ fun ShiftsScreen(
                         }
                     }
 
-                    // Shift details or Day-off pill
-                    if (shift == null) {
+                    // Render every shift assigned to the day; do not collapse multiple shifts into one.
+                    if (workingShifts.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Gray.copy(alpha = 0.2f))
+                                .background(if (isDayOff) ExpressRed.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.2f))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "غير محدد",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.LightGray
-                            )
-                        }
-                    } else if (shift.isDayOff) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(ExpressRed.copy(alpha = 0.15f))
-                                .border(1.dp, ExpressRed.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "عطلة أسبوعية ☕",
+                                text = if (isDayOff) "عطلة أسبوعية ☕" else "غير محدد",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = ExpressRed
+                                color = if (isDayOff) ExpressRed else Color.LightGray
                             )
                         }
                     } else {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.AccessTime,
-                                    contentDescription = null,
-                                    tint = HeroYellow,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "${shift.startTime} إلى ${shift.endTime}  (${ShiftManager.formatTimeArabic(shift.startTime)} - ${ShiftManager.formatTimeArabic(shift.endTime)})",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White
-                                )
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            workingShifts.forEachIndexed { index, shift ->
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "الوردية ${index + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = HeroYellow
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.AccessTime,
+                                            contentDescription = null,
+                                            tint = HeroYellow,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${ShiftManager.formatTimeArabic(shift.startTime)} إلى ${ShiftManager.formatTimeArabic(shift.endTime)}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = Color.White
+                                        )
+                                    }
+                                    val startMinutes = ShiftManager.parseTimeToMinutes(shift.startTime)
+                                    val endMinutes = ShiftManager.parseTimeToMinutes(shift.endTime)
+                                    if (endMinutes <= startMinutes) {
+                                        Text(
+                                            text = "النهاية في اليوم التالي",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = HeroYellow.copy(alpha = 0.9f)
+                                        )
+                                    }
+                                    val duration = ShiftManager.calculateShiftDurationHours(shift)
+                                    Text(
+                                        text = ShiftManager.formatShiftDurationArabic(duration),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = Color.Gray
+                                    )
+                                }
                             }
-
-                            val duration = ShiftManager.calculateShiftDurationHours(shift)
-                            Text(
-                                text = ShiftManager.formatShiftDurationArabic(duration),
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = Color.Gray
-                            )
                         }
                     }
                 }

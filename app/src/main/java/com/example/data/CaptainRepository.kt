@@ -588,190 +588,38 @@ class CaptainRepository(
     fun startRealtimeShiftListener() {
         val user = firebaseAuth.currentUser
         if (user == null) {
-            Log.d("CaptainRepository", "[ShiftListener] Captain not authenticated yet, waiting to register shift listener")
+            Log.d("CaptainRepository", "[ShiftListener] Waiting for authenticated captain")
             return
         }
         val uid = user.uid
         stopRealtimeShiftListener()
+        Log.i("CaptainRepository", "[ShiftListener] Listening to canonical captain_schedules/$uid document")
 
-        Log.i("CaptainRepository", "[ShiftListener] Registering realtime shift listener for captain UID: $uid (target: captain_schedules)")
+        captainScheduleDocListenerRegistration = firestore.collection("captain_schedules")
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w("CaptainRepository", "[ShiftListener] Canonical schedule listener failed: ${error.message}")
+                    _isShiftNetworkConnected.value = false
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
 
-        try {
-            // 1. Primary: Listen to document in 'captain_schedules/{uid}'
-            captainScheduleDocListenerRegistration = firestore.collection("captain_schedules")
-                .document(uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[ShiftListener] captain_schedules/{uid} listener notice: ${error.message}")
-                        _isShiftNetworkConnected.value = false
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && snapshot.exists()) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val shifts = snapshot.extractAllShifts(uid)
-                            if (shifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, shifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received and atomically cached ${shifts.size} shifts from captain_schedules/$uid")
-                            }
-                        }
+                _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        // The admin panel writes captain_schedules/{captainUid}.
+                        // Replace Room even when the schedule is empty or deleted, so removed shifts cannot linger.
+                        val latestShifts = if (snapshot.exists()) snapshot.extractAllShifts(uid) else emptyList()
+                        shiftDao?.atomicReplaceCaptainShifts(uid, latestShifts)
+                        _isShiftSynced.value = true
+                        Log.i("CaptainRepository", "[ShiftListener] Replaced local schedule with ${latestShifts.size} canonical shifts")
+                    } catch (syncError: Exception) {
+                        Log.e("CaptainRepository", "[ShiftListener] Failed to apply canonical shifts", syncError)
+                        _isShiftSynced.value = false
                     }
                 }
-
-            // 1b. Subcollection: Listen to 'captain_schedules/{uid}/shifts'
-            captainScheduleSubcollectionListenerRegistration = firestore.collection("captain_schedules")
-                .document(uid)
-                .collection("shifts")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[ShiftListener] captain_schedules subcollection notice: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val allShifts = mutableListOf<ShiftEntity>()
-                            for (doc in snapshot.documents) {
-                                allShifts.addAll(doc.extractAllShifts(uid))
-                            }
-                            if (allShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, allShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received and cached ${allShifts.size} shifts from captain_schedules/$uid/shifts")
-                            }
-                        }
-                    }
-                }
-
-            // 2. Collection Query: Listen to 'captain_schedules' where captainId == uid
-            captainScheduleQueryListenerRegistration = firestore.collection("captain_schedules")
-                .whereEqualTo("captainId", uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[ShiftListener] captain_schedules query (captainId) notice: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val allShifts = mutableListOf<ShiftEntity>()
-                            for (doc in snapshot.documents) {
-                                allShifts.addAll(doc.extractAllShifts(uid))
-                            }
-                            if (allShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, allShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received and atomically cached ${allShifts.size} shifts from captain_schedules query")
-                            }
-                        }
-                    }
-                }
-
-            // 2b. Collection Query: Listen to 'captain_schedules' where captainUid == uid
-            captainScheduleUidQueryListenerRegistration = firestore.collection("captain_schedules")
-                .whereEqualTo("captainUid", uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val allShifts = mutableListOf<ShiftEntity>()
-                            for (doc in snapshot.documents) {
-                                allShifts.addAll(doc.extractAllShifts(uid))
-                            }
-                            if (allShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, allShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received ${allShifts.size} shifts from captain_schedules query (captainUid)")
-                            }
-                        }
-                    }
-                }
-
-            // 2b-2. Collection Query: Listen to 'captain_schedules' where driverId == uid
-            captainScheduleDriverQueryListenerRegistration = firestore.collection("captain_schedules")
-                .whereEqualTo("driverId", uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val allShifts = mutableListOf<ShiftEntity>()
-                            for (doc in snapshot.documents) {
-                                allShifts.addAll(doc.extractAllShifts(uid))
-                            }
-                            if (allShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, allShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received ${allShifts.size} shifts from captain_schedules query (driverId)")
-                            }
-                        }
-                    }
-                }
-
-            // 2c. Subcollection: Listen to 'captains/{uid}/shifts'
-            captainSubcollectionShiftListenerRegistration = firestore.collection("captains")
-                .document(uid)
-                .collection("shifts")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        _isShiftNetworkConnected.value = !snapshot.metadata.isFromCache
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val allShifts = mutableListOf<ShiftEntity>()
-                            for (doc in snapshot.documents) {
-                                allShifts.addAll(doc.extractAllShifts(uid))
-                            }
-                            if (allShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, allShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Received ${allShifts.size} shifts from captains/$uid/shifts")
-                            }
-                        }
-                    }
-                }
-
-            // 3. Fallback: Listen to captain profile doc for embedded schedule
-            captainDocShiftListenerRegistration = firestore.collection("captains").document(uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[ShiftListener] Captain doc listener notice: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && snapshot.exists()) {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val embeddedShifts = snapshot.extractAllShifts(uid)
-                            if (embeddedShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, embeddedShifts)
-                                _isShiftSynced.value = true
-                                Log.i("CaptainRepository", "[ShiftListener] Found ${embeddedShifts.size} embedded shifts in captain doc, caching locally")
-                            }
-                        }
-                    }
-                }
-
-            // 4. Legacy fallback: 'shifts' collection
-            shiftListenerRegistration = firestore.collection("shifts")
-                .whereEqualTo("captainId", uid)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w("CaptainRepository", "[ShiftListener] Legacy shifts notice: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val legacyShifts = snapshot.documents.mapNotNull { it.toShiftEntity(uid) }
-                            if (legacyShifts.isNotEmpty()) {
-                                shiftDao?.atomicReplaceCaptainShifts(uid, legacyShifts)
-                                _isShiftSynced.value = true
-                            }
-                        }
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w("CaptainRepository", "[ShiftListener] Error starting shift listener: ${e.message}")
-        }
+            }
     }
 
     /**
@@ -782,7 +630,18 @@ class CaptainRepository(
         val user = firebaseAuth.currentUser ?: return Result.failure(IllegalStateException("يرجى تسجيل الدخول أولاً"))
         val uid = user.uid
         return try {
-            Log.i("CaptainRepository", "[ShiftSync] Explicitly syncing shifts from Firestore for UID: $uid (target: captain_schedules)")
+            Log.i("CaptainRepository", "[ShiftSync] Reading canonical captain_schedules/$uid first")
+            val canonicalDoc = firestore.collection("captain_schedules").document(uid).get().await()
+            if (canonicalDoc.exists()) {
+                val canonicalShifts = canonicalDoc.extractAllShifts(uid)
+                shiftDao?.atomicReplaceCaptainShifts(uid, canonicalShifts)
+                _isShiftSynced.value = true
+                _isShiftNetworkConnected.value = true
+                Log.i("CaptainRepository", "[ShiftSync] Applied ${canonicalShifts.size} shifts from canonical schedule")
+                return Result.success(canonicalShifts)
+            }
+
+            // Legacy fallback is used only when the canonical admin schedule document is absent.
             val candidateLists = mutableListOf<List<ShiftEntity>>()
 
             // 1. Fetch from 'captain_schedules/{uid}'

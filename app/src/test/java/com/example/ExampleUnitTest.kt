@@ -374,12 +374,121 @@ class ExampleUnitTest {
     @Test
     fun testArabicShiftDurationFormatting() {
         assertEquals("8 ساعات عمل", ShiftManager.formatShiftDurationArabic(8.0))
-        assertEquals("8.5 ساعة عمل", ShiftManager.formatShiftDurationArabic(8.5))
-        assertEquals("7.5 ساعة عمل", ShiftManager.formatShiftDurationArabic(7.5))
+        assertEquals("8 ساعات و 30 دقيقة عمل", ShiftManager.formatShiftDurationArabic(8.5))
+        assertEquals("7 ساعات و 30 دقيقة عمل", ShiftManager.formatShiftDurationArabic(7.5))
         assertEquals("ساعة عمل واحدة", ShiftManager.formatShiftDurationArabic(1.0))
-        assertEquals("ساعتا عمل", ShiftManager.formatShiftDurationArabic(2.0))
+        assertEquals("ساعتين عمل", ShiftManager.formatShiftDurationArabic(2.0))
         assertEquals("3 ساعات عمل", ShiftManager.formatShiftDurationArabic(3.0))
         assertEquals("12 ساعة عمل", ShiftManager.formatShiftDurationArabic(12.0))
+        assertEquals("12 ساعة و 5 دقائق عمل", ShiftManager.formatShiftDurationArabic(12.0 + 5.0 / 60.0))
+        assertEquals("22 ساعة عمل", ShiftManager.formatShiftDurationArabic(22.0))
+    }
+
+    @Test
+    fun testCaptainScheduleReadsEveryNestedShiftUsingExactClockTimes() {
+        val uid = "captain_shift_parse"
+        val firestoreSchedule = mapOf<String, Any?>(
+            "weeklySchedule" to mapOf(
+                "sunday" to mapOf(
+                    "day" to "sunday",
+                    "dayNameAr" to "الأحد",
+                    "isDayOff" to false,
+                    "totalHours" to 22.0,
+                    "shifts" to listOf(
+                        mapOf(
+                            "id" to "shift_sunday_1",
+                            "name" to "وردية أساسية",
+                            "startTime" to "14:00",
+                            "endTime" to "12:00",
+                            "durationHours" to 22.0,
+                            "isOvernight" to true
+                        )
+                    )
+                ),
+                "monday" to mapOf(
+                    "day" to "monday",
+                    "dayNameAr" to "الاثنين",
+                    "isDayOff" to false,
+                    "totalHours" to 14.0,
+                    "shifts" to listOf(
+                        mapOf(
+                            "id" to "shift_monday_1",
+                            "name" to "وردية أساسية",
+                            "startTime" to "10:00",
+                            "endTime" to "00:00",
+                            "durationHours" to 14.0,
+                            "isOvernight" to true
+                        )
+                    )
+                ),
+                "friday" to mapOf(
+                    "day" to "friday",
+                    "dayNameAr" to "الجمعة",
+                    "isDayOff" to true,
+                    "totalHours" to 0,
+                    "shifts" to emptyList<Map<String, Any?>>()
+                )
+            )
+        )
+
+        val shifts = com.example.data.extractShiftsFromMap(firestoreSchedule, "schedule", uid)
+        val sunday = shifts.single { it.id == "shift_sunday_1" }
+        val monday = shifts.single { it.id == "shift_monday_1" }
+
+        assertEquals("14:00", sunday.startTime)
+        assertEquals("12:00", sunday.endTime)
+        assertEquals(22.0, ShiftManager.calculateShiftDurationHours(sunday), 0.01)
+        assertEquals("10:00", monday.startTime)
+        assertEquals("00:00", monday.endTime)
+        assertEquals(14.0, ShiftManager.calculateShiftDurationHours(monday), 0.01)
+        assertTrue(shifts.any { it.dayOfWeek == Calendar.FRIDAY && it.isDayOff })
+    }
+
+    @Test
+    fun testMultipleShiftsOnSameDayAreNotCollapsed() {
+        val uid = "captain_multi_shift"
+        val firestoreSchedule = mapOf<String, Any?>(
+            "weeklySchedule" to mapOf(
+                "saturday" to mapOf(
+                    "day" to "saturday",
+                    "dayNameAr" to "السبت",
+                    "isDayOff" to false,
+                    "totalHours" to 14.0,
+                    "shifts" to listOf(
+                        mapOf("id" to "shift_saturday_1", "startTime" to "06:00", "endTime" to "12:00"),
+                        mapOf("id" to "shift_saturday_2", "startTime" to "14:00", "endTime" to "22:00")
+                    )
+                )
+            )
+        )
+
+        val shifts = com.example.data.extractShiftsFromMap(firestoreSchedule, "schedule", uid)
+        assertEquals(2, shifts.size)
+        assertEquals(setOf("shift_saturday_1", "shift_saturday_2"), shifts.map { it.id }.toSet())
+        assertEquals(14.0, ShiftManager.calculateWeeklyWorkHours(shifts), 0.01)
+    }
+
+    @Test
+    fun testLongOvernightShiftRemainsActiveAfterMidnightUntilItsActualEnd() {
+        val sundayShift = ShiftEntity(
+            id = "shift_sunday_1",
+            captainUid = "captain_long_shift",
+            dayOfWeek = Calendar.SUNDAY,
+            dayNameArabic = "الأحد",
+            startTime = "14:00",
+            endTime = "12:00",
+            isDayOff = false
+        )
+        val mondayElevenAm = Calendar.getInstance(ShiftManager.CAIRO_TIME_ZONE).apply {
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            set(Calendar.HOUR_OF_DAY, 11)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val status = ShiftManager.calculateShiftStatus(listOf(sundayShift), mondayElevenAm)
+        assertTrue(status is ShiftStatus.Active)
+        assertEquals("shift_sunday_1", (status as ShiftStatus.Active).shift.id)
     }
 
     @Test

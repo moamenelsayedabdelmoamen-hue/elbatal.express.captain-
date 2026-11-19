@@ -9,13 +9,16 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ShiftDao {
-    @Query("SELECT * FROM captain_shifts WHERE captainUid = :captainUid ORDER BY dayOfWeek ASC")
+    @Query("SELECT * FROM captain_shifts WHERE captainUid = :captainUid ORDER BY dayOfWeek ASC, startTime ASC, id ASC")
     fun getShiftsForCaptainFlow(captainUid: String): Flow<List<ShiftEntity>>
 
-    @Query("SELECT * FROM captain_shifts ORDER BY dayOfWeek ASC")
+    @Query("SELECT * FROM captain_shifts ORDER BY dayOfWeek ASC, startTime ASC, id ASC")
     fun getAllShiftsFlow(): Flow<List<ShiftEntity>>
 
-    @Query("SELECT * FROM captain_shifts WHERE captainUid = :captainUid AND dayOfWeek = :dayOfWeek LIMIT 1")
+    @Query("SELECT * FROM captain_shifts WHERE captainUid = :captainUid AND dayOfWeek = :dayOfWeek ORDER BY startTime ASC, id ASC")
+    suspend fun getShiftsForDay(captainUid: String, dayOfWeek: Int): List<ShiftEntity>
+
+    @Query("SELECT * FROM captain_shifts WHERE captainUid = :captainUid AND dayOfWeek = :dayOfWeek ORDER BY startTime ASC, id ASC LIMIT 1")
     suspend fun getShiftForDay(captainUid: String, dayOfWeek: Int): ShiftEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
