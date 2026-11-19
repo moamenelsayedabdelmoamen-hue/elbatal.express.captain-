@@ -3,15 +3,39 @@ package com.example.util
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.functions.FirebaseFunctionsException
 
 object FirebaseErrorParser {
 
     /**
      * Translates Firebase and network exceptions into clear, friendly Arabic messages.
-     * Maps PERMISSION_DENIED, UNAUTHENTICATED, UNAVAILABLE, etc.
+     * Maps Cloud Functions, Firestore, and Auth error codes safely.
      */
     fun parseErrorMessage(throwable: Throwable?, defaultMsg: String = "حدث خطأ غير متوقع"): String {
         if (throwable == null) return defaultMsg
+
+        if (throwable is FirebaseFunctionsException) {
+            val serverMsg = throwable.message?.trim().orEmpty()
+            return when (throwable.code) {
+                FirebaseFunctionsException.Code.UNAUTHENTICATED ->
+                    serverMsg.ifBlank { "جلسة تسجيل الدخول منتهية، يرجى تسجيل الدخول مجدداً." }
+                FirebaseFunctionsException.Code.PERMISSION_DENIED ->
+                    serverMsg.ifBlank { "عفواً، ليس لديك الصلاحية لتنفيذ هذا الإجراء." }
+                FirebaseFunctionsException.Code.NOT_FOUND ->
+                    serverMsg.ifBlank { "الطلب المطلوب غير موجود أو لم يعد متاحاً." }
+                FirebaseFunctionsException.Code.ALREADY_EXISTS ->
+                    serverMsg.ifBlank { "تم قبول هذا الطلب بالفعل بواسطة كابتن آخر." }
+                FirebaseFunctionsException.Code.FAILED_PRECONDITION ->
+                    serverMsg.ifBlank { "لا يمكن تنفيذ العملية على الطلب في حالته الحالية." }
+                FirebaseFunctionsException.Code.INVALID_ARGUMENT ->
+                    serverMsg.ifBlank { "البيانات المرسلة غير صالحة." }
+                FirebaseFunctionsException.Code.DEADLINE_EXCEEDED ->
+                    "انتهت مهلة استجابة الخادم، يرجى إعادة المحاولة."
+                FirebaseFunctionsException.Code.UNAVAILABLE ->
+                    "تعذر الاتصال بخدمة الخادم حالياً، يرجى التحقق من الإنترنت وإعادة المحاولة."
+                else -> serverMsg.ifBlank { defaultMsg }
+            }
+        }
 
         // Handle Firestore specific error codes
         if (throwable is FirebaseFirestoreException) {
