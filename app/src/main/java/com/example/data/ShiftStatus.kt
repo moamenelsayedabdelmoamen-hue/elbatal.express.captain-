@@ -191,14 +191,14 @@ object ShiftManager {
      * Handles integers and fractions (e.g. 8.0 -> "8 ساعات عمل", 7.5 -> "7.5 ساعة عمل", 1.0 -> "ساعة عمل واحدة")
      */
     fun formatShiftDurationArabic(hours: Double): String {
-        if (hours <= 0.0) return "0 ساعة"
-        val isInt = (hours % 1.0 == 0.0)
-        val formattedNum = if (isInt) "${hours.toInt()}" else String.format(Locale.getDefault(), "%.1f", hours)
+        if (hours <= 0.0) return "0 دقيقة عمل"
+        val totalMinutes = Math.round(hours * 60.0).toInt()
+        val wholeHours = totalMinutes / 60
+        val remainingMinutes = totalMinutes % 60
         return when {
-            hours == 1.0 -> "ساعة عمل واحدة"
-            hours == 2.0 -> "ساعتا عمل"
-            hours in 3.0..10.0 && isInt -> "$formattedNum ساعات عمل"
-            else -> "$formattedNum ساعة عمل"
+            wholeHours == 0 -> "$remainingMinutes دقيقة عمل"
+            remainingMinutes == 0 -> "$wholeHours ساعة عمل"
+            else -> "$wholeHours ساعة و $remainingMinutes دقيقة عمل"
         }
     }
 

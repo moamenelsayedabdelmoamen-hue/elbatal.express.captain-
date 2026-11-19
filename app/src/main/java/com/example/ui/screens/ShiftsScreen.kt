@@ -222,7 +222,7 @@ fun ShiftsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (totalHours % 1.0 == 0.0) "${totalHours.toInt()} ساعة" else String.format(Locale.getDefault(), "%.1f ساعة", totalHours),
+                        text = ShiftManager.formatShiftDurationArabic(totalHours),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = HeroYellow
                     )
