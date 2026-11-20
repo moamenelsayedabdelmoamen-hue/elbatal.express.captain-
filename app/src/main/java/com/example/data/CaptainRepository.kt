@@ -769,10 +769,10 @@ class CaptainRepository(
                 }
             }
 
-            // 1. Available pending orders scoped to this captain (matches firestore.rules isAvailablePendingOrder)
+            // 1. Read only the single server-issued pending offer addressed to this captain.
             ordersListenerRegistrations += firestore.collection("orders")
                 .whereEqualTo("status", "pending")
-                .whereArrayContains("eligibleCaptainIds", authUid)
+                .whereEqualTo("offeredCaptainId", authUid)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.w("CaptainRepository", "[FirestoreOrdersListener] pending query notice: ${error.message}")
@@ -823,10 +823,10 @@ class CaptainRepository(
             if (myUid.isBlank()) {
                 return Result.success(emptyList())
             }
-            Log.i("CaptainRepository", "[FirestoreQuery] Executing scoped query on 'orders' where status == 'pending' and eligibleCaptainIds array-contains captain...")
+            Log.i("CaptainRepository", "[FirestoreQuery] Executing scoped query on 'orders' for the captain's current server-issued offer...")
             val querySnapshot = firestore.collection("orders")
                 .whereEqualTo("status", "pending")
-                .whereArrayContains("eligibleCaptainIds", myUid)
+                .whereEqualTo("offeredCaptainId", myUid)
                 .get()
                 .await()
 
@@ -894,7 +894,7 @@ class CaptainRepository(
                 try {
                     val pendingSnapshot = firestore.collection("orders")
                         .whereEqualTo("status", "pending")
-                        .whereArrayContains("eligibleCaptainIds", myUid)
+                        .whereEqualTo("offeredCaptainId", myUid)
                         .get()
                         .await()
                     for (doc in pendingSnapshot.documents) {
