@@ -25,7 +25,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (
+      return isSignedIn()
+        && 'email_verified' in request.auth.token
+        && request.auth.token.email_verified == true
+        && (
         request.auth.token.role == 'admin' ||
         request.auth.token.admin == true ||
         request.auth.token.email in ['moamen.elsayed.abdelmoamen@gmail.com', 'admin@elbatalexpress.com'] ||
@@ -365,11 +368,9 @@ service cloud.firestore {
     }
 
     function isAvailablePendingOrder(data) {
+      // Dispatch is sequential: only the captain holding the current server-issued offer may read it.
       return ('status' in data && data.status == 'pending')
-        && (
-          ('offeredCaptainId' in data && data.offeredCaptainId == request.auth.uid) ||
-          ('eligibleCaptainIds' in data && request.auth.uid in data.eligibleCaptainIds)
-        );
+        && ('offeredCaptainId' in data && data.offeredCaptainId == request.auth.uid);
     }
 
     function isOrderOwnedByMerchant(data) {
@@ -393,36 +394,99 @@ service cloud.firestore {
              isOrderOwnedByCustomer(data);
     }
 
+    function isMerchantConfirmingSubmittedOrder() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.captainId != null
+        && resource.data.customerDetailsSubmitted == true
+        && request.resource.data.customerDetailsSubmitted == true
+        && request.resource.data.customerDetailsConfirmed == true
+        && request.resource.data.customerDetailsRejected == false
+        && request.resource.data.merchantConfirmed == true
+        && request.resource.data.isConfirmed == true
+        && request.resource.data.status == 'en_route'
+        && request.resource.data.orderStatus == 'en_route'
+        && changed.hasOnly([
+          'customerDetailsConfirmed', 'customerDetailsRejected', 'merchantConfirmed',
+          'isConfirmed', 'rejectionReason', 'confirmedAt', 'updatedAt',
+          'status', 'orderStatus', 'status_ar'
+        ]);
+    }
+
+    function isMerchantRejectingSubmittedOrder() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.captainId != null
+        && resource.data.customerDetailsSubmitted == true
+        && request.resource.data.customerDetailsSubmitted == false
+        && request.resource.data.customerDetailsRejected == true
+        && request.resource.data.customerDetailsConfirmed == false
+        && request.resource.data.merchantConfirmed == false
+        && request.resource.data.isConfirmed == false
+        && request.resource.data.status == 'merchant_rejected'
+        && request.resource.data.orderStatus == 'merchant_rejected'
+        && request.resource.data.rejectionReason is string
+        && request.resource.data.rejectionReason.size() > 0
+        && changed.hasOnly([
+          'customerDetailsSubmitted', 'customerDetailsConfirmed', 'customerDetailsRejected',
+          'merchantConfirmed', 'isConfirmed', 'rejectionReason', 'rejectedAt', 'updatedAt',
+          'status', 'orderStatus', 'status_ar'
+        ]);
+    }
+
+    function isMerchantCancellingUnassignedOrder() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.captainId == null
+        && resource.data.status in ['pending', 'searching', 'جاري البحث', 'جاري البحث عن كابتن']
+        && request.resource.data.status == 'cancelled'
+        && changed.hasOnly(['status', 'status_ar', 'cancelReason', 'cancelledAt']);
+    }
+
+    // Server-authoritative orders:
+    // - Captains only read the offer addressed to their UID or their own assigned order.
+    // - Merchants can read their own orders and perform only the explicit confirmation/rejection/cancel transitions.
+    // - All order creation, captain lifecycle, assignment and settlement writes execute through Cloud Functions.
     match /orders/{orderId} {
       allow get: if isSignedIn() && isValidId(orderId) && canReadOrder(existing());
       allow list: if isSignedIn() && canReadOrder(existing());
 
-      // Merchant clients may create only a pending order for their own approved, verified account.
-      allow create: if isAdmin() || (
-        isMerchantAccount()
-        && request.auth.token.email_verified == true
-        && incoming().merchantId == request.auth.uid
-        && incoming().captainId == null
-        && incoming().dispatchStatus == 'searching'
-        && incoming().status == 'pending'
-        && get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.status in ['approved', 'active']
-      );
+      allow create: if isAdmin();
 
-      // All captain order lifecycle mutations must execute via Cloud Functions (Admin SDK).
-      // Merchants may only update non-dispatch/non-captain fields on their own orders.
+      // Captains are deliberately READ-ONLY. All captain actions must use authenticated callables.
       allow update: if isAdmin() || (
         isOrderOwnedByMerchant(existing())
-        && incoming().merchantId == existing().merchantId
-        && incoming().userId == existing().userId
-        && incoming().orderCode == existing().orderCode
-        && incoming().captainId == existing().captainId
-        && !incoming().diff(existing()).affectedKeys().hasAny([
-          'captainId', 'captainUid', 'driverId', 'assignedCaptainId',
-          'offeredCaptainId', 'eligibleCaptainIds', 'excludedCaptainIds',
-          'timedOutCaptainIds', 'dispatchStatus', 'assignedAt', 'acceptedAt',
-          'deliveredAt', 'completedAt', 'captainEarning', 'platformCommission'
-        ])
+        && request.resource.data.merchantId == resource.data.merchantId
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.orderCode == resource.data.orderCode
+        && request.resource.data.captainId == resource.data.captainId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'merchantId', 'userId', 'restaurantId', 'orderCode', 'code',
+          'captainId', 'captainUid', 'driverId', 'assignedCaptainId', 'offeredCaptainId',
+          'eligibleCaptainIds', 'excludedCaptainIds', 'timedOutCaptainIds',
+          'dispatchStatus', 'dispatchAttemptId', 'dispatchLockedUntilMs', 'dispatchTriggerSource',
+          'dispatchAssignedByAttemptId', 'assignedAt', 'acceptedAt',
+          'createdByServerFunction', 'subscriptionVersionAtCreation',
+          'capacityReserved', 'capacityReleased', 'capacityReservedAt', 'capacityReleasedAt',
+          'capacityReleasedReason', 'captainEarnings', 'driverEarnings', 'commission',
+          'platformFee', 'walletCredited', 'payoutAmount', 'settlementStatus', 'paymentStatus'
+        ]) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'status', 'orderStatus', 'status_ar', 'merchantConfirmed',
+            'customerDetailsSubmitted', 'customerDetailsConfirmed', 'customerDetailsRejected',
+            'isConfirmed', 'confirmedAt', 'rejectedAt', 'cancelReason', 'cancelledAt'
+          ]) ||
+          isMerchantConfirmingSubmittedOrder() ||
+          isMerchantRejectingSubmittedOrder() ||
+          isMerchantCancellingUnassignedOrder()
+        ) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'price', 'serviceFee', 'deliveryFee', 'totalAmount'
+          ]) ||
+          (resource.data.captainId == null &&
+            resource.data.status in ['pending', 'searching', 'جاري البحث', 'جاري البحث عن كابتن'])
+        )
       );
+
       allow delete: if isAdmin();
     }
 
@@ -441,19 +505,16 @@ service cloud.firestore {
     }
 
     match /order_codes/{code} {
-      allow get, list: if isSignedIn();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow get, list: if isAdmin() ||
+        (isMerchantAccount() && existing().merchantId == request.auth.uid);
+      allow create, update, delete: if isAdmin();
     }
 
     match /idempotency_keys/{keyId} {
-      allow get: if isAdmin() || (isMerchantAccount() && (
-        !exists(/databases/$(database)/documents/idempotency_keys/$(keyId)) ||
-        existing().merchantId == request.auth.uid
-      ));
+      allow get: if isAdmin() ||
+        (isMerchantAccount() && existing().merchantId == request.auth.uid);
       allow list: if isAdmin();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /settings/{settingId} {
