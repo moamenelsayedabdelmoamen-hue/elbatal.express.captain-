@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.google.devtools.ksp)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.secrets)
-    alias(libs.plugins.google.services) version "4.4.4"
+    alias(libs.plugins.google.services)
 }
 
 android {
