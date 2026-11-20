@@ -35,10 +35,8 @@ service firebase.storage {
 
     // Trusted DB-backed merchant account check
     function isMerchantAccount() {
-      return isAuthenticated() && (
-        firestore.exists(/databases/(default)/documents/restaurants/$(request.auth.uid)) ||
-        firestore.exists(/databases/(default)/documents/merchants/$(request.auth.uid))
-      );
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/merchants/$(request.auth.uid));
     }
 
     function isValidImageUpload() {
