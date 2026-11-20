@@ -708,10 +708,22 @@ class CaptainRepository(
                                 } else {
                                     finalOrderBase
                                 }
-                                val baseWithExistingLocation = if (finalOrder.storeLocationUrl.isBlank() && !existingBefore?.storeLocationUrl.isNullOrBlank()) {
-                                    finalOrder.copy(storeLocationUrl = existingBefore!!.storeLocationUrl)
+                                // Firestore remains the source of truth, but FCM may have resolved a
+                                // private merchant Storage image path into a local cache URI. Preserve that
+                                // trusted cached identity if the order snapshot contains only the Storage path.
+                                val finalOrderWithMerchantIdentity = finalOrder.copy(
+                                    storeName = finalOrder.storeName.ifBlank { existingBefore?.storeName.orEmpty() },
+                                    storePhone = finalOrder.storePhone.ifBlank { existingBefore?.storePhone.orEmpty() },
+                                    storeImage = finalOrder.storeImage.ifBlank { existingBefore?.storeImage.orEmpty() },
+                                    merchantId = finalOrder.merchantId.ifBlank { existingBefore?.merchantId.orEmpty() }
+                                )
+                                val baseWithExistingLocation = if (
+                                    finalOrderWithMerchantIdentity.storeLocationUrl.isBlank() &&
+                                    !existingBefore?.storeLocationUrl.isNullOrBlank()
+                                ) {
+                                    finalOrderWithMerchantIdentity.copy(storeLocationUrl = existingBefore!!.storeLocationUrl)
                                 } else {
-                                    finalOrder
+                                    finalOrderWithMerchantIdentity
                                 }
                                 val enrichedOrder = if (baseWithExistingLocation.storeLocationUrl.isBlank() &&
                                     (baseWithExistingLocation.merchantId.isNotBlank() || baseWithExistingLocation.storeName.isNotBlank())
@@ -1000,21 +1012,29 @@ class CaptainRepository(
                         }
                         resolvedOrder
                     }
-                    val baseWithLocation = if (finalOrder.storeLocationUrl.isBlank() &&
-                        (finalOrder.merchantId.isNotBlank() || finalOrder.storeName.isNotBlank())
+                    // Keep the real merchant card identity resolved from the authenticated FCM
+                    // offer when this Firestore snapshot carries only a private Storage path.
+                    val finalOrderWithMerchantIdentity = finalOrder.copy(
+                        storeName = finalOrder.storeName.ifBlank { existingLocal?.storeName.orEmpty() },
+                        storePhone = finalOrder.storePhone.ifBlank { existingLocal?.storePhone.orEmpty() },
+                        storeImage = finalOrder.storeImage.ifBlank { existingLocal?.storeImage.orEmpty() },
+                        merchantId = finalOrder.merchantId.ifBlank { existingLocal?.merchantId.orEmpty() }
+                    )
+                    val baseWithLocation = if (finalOrderWithMerchantIdentity.storeLocationUrl.isBlank() &&
+                        (finalOrderWithMerchantIdentity.merchantId.isNotBlank() || finalOrderWithMerchantIdentity.storeName.isNotBlank())
                     ) {
                         val (accountUrl, accLat, accLng) = lookupMerchantLocationFromFirestore(
-                            merchantId = finalOrder.merchantId,
-                            storeName = finalOrder.storeName,
+                            merchantId = finalOrderWithMerchantIdentity.merchantId,
+                            storeName = finalOrderWithMerchantIdentity.storeName,
                             forceRefresh = false
                         )
-                        finalOrder.copy(
-                            storeLocationUrl = accountUrl.ifBlank { finalOrder.storeLocationUrl },
-                            restaurantLatitude = finalOrder.restaurantLatitude ?: accLat,
-                            restaurantLongitude = finalOrder.restaurantLongitude ?: accLng
+                        finalOrderWithMerchantIdentity.copy(
+                            storeLocationUrl = accountUrl.ifBlank { finalOrderWithMerchantIdentity.storeLocationUrl },
+                            restaurantLatitude = finalOrderWithMerchantIdentity.restaurantLatitude ?: accLat,
+                            restaurantLongitude = finalOrderWithMerchantIdentity.restaurantLongitude ?: accLng
                         )
                     } else {
-                        finalOrder
+                        finalOrderWithMerchantIdentity
                     }
                     orderDao.upsertByFirestoreId(baseWithLocation)
                     count++
@@ -3370,13 +3390,14 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
     val storeName = safeString(
         "restaurant name", "restaurant_name", "restaurantName",
         "storeName", "store_name", "restaurant", "store",
-        "vendorName", "vendor", "shopName", "shop",
-        default = "مطعم الشريك"
+        "vendorName", "vendor", "shopName", "shop", "merchantName",
+        default = ""
     )
-    val storePhone = safeString("storePhone", "restaurantPhone", "restaurant_phone", "store_phone", "vendorPhone")
+    val storePhone = safeString("storePhone", "merchantPhone", "restaurantPhone", "restaurant_phone", "store_phone", "vendorPhone")
     val storeImage = safeString(
         "storeImage", "storePhotoUrl", "restaurantImage", "restaurant_image",
-        "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl"
+        "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl",
+        "merchantImageUrl", "merchantLogo", "storeLogo", "logoUrl", "logo"
     )
     val pickup = safeString(
         "pickupAddress", "pickup_address", "restaurant_address", "restaurantAddress",
@@ -3412,7 +3433,7 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
     val itemsCnt = safeLong("itemsCount", "items_count", "quantity", default = 1L).toInt()
 
     val totalAmt = safeDouble("price", "orderTotalAmount", "total", "total_price", "amount", default = 0.0)
-    val fee = safeDouble("deliveryFee", "delivery_fee", "shippingFee", "fee", default = 25.0)
+    val fee = safeDouble("deliveryFee", "delivery_fee", "shippingFee", "fee", default = 0.0)
     val dist = safeDouble("distanceKm", "distance_km", "distance", default = 3.0)
 
     val captId = safeString(
