@@ -8,12 +8,42 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 class CaptainFirebaseMessagingService : FirebaseMessagingService() {
+
+    /**
+     * Resolve only a server-supplied merchant Storage path or HTTP(S) URL.
+     * The captain app never uploads or edits the merchant's delivery fee/profile.
+     */
+    private suspend fun resolveMerchantImageUrl(rawUrl: String, rawPath: String): String {
+        val url = rawUrl.trim()
+        if (url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)) {
+            return url
+        }
+
+        val path = rawPath.trim().ifBlank { url }
+        if (path.isBlank()) return ""
+
+        return runCatching {
+            val storage = FirebaseStorage.getInstance()
+            val reference = if (path.startsWith("gs://", ignoreCase = true)) {
+                storage.getReferenceFromUrl(path)
+            } else if (path.startsWith("merchants/")) {
+                storage.reference.child(path)
+            } else {
+                return@runCatching ""
+            }
+            reference.downloadUrl.await().toString()
+        }.onFailure { error ->
+            Log.w(TAG, "Could not resolve merchant profile image from Storage path", error)
+        }.getOrDefault("")
+    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -75,12 +105,24 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             ?: data["firestoreDocId"]
                             ?: remoteMessage.messageId
                             ?: System.currentTimeMillis().toString()
-                        val storeName = data["storeName"]
-                            ?: remoteMessage.notification?.title
-                            ?: "مطعم مسجل"
+                        val storeName = data["storeName"].orEmpty().trim()
+                        val storePhone = data["storePhone"].orEmpty().trim()
+                        val merchantId = data["merchantId"].orEmpty().trim()
+                        val storeImage = resolveMerchantImageUrl(
+                            rawUrl = data["storeImage"].orEmpty(),
+                            rawPath = data["storeImagePath"].orEmpty()
+                        )
                         val pickup = data["pickupAddress"].orEmpty()
                         val delivery = data["deliveryAddress"].orEmpty()
-                        val fee = data["deliveryFee"]?.toDoubleOrNull() ?: 25.0
+                        val fee = data["deliveryFee"]?.toDoubleOrNull()
+                            ?.takeIf { it.isFinite() && it >= 0.0 }
+                        if (storeName.isBlank() || storePhone.isBlank() || storeImage.isBlank() || fee == null) {
+                            Log.e(
+                                TAG,
+                                "Offer omitted: trusted merchant name, phone, image, or merchant-entered delivery fee is missing (order=$orderKey)"
+                            )
+                            return@launch
+                        }
                         val distanceKm = data["distanceKm"]?.toDoubleOrNull() ?: 3.0
                         val orderCode = data["orderCode"]
                             ?: data["orderCodes"]
@@ -101,8 +143,8 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             customerName = data["customerName"].orEmpty().ifBlank { "عميل البطل" },
                             customerPhone = data["customerPhone"].orEmpty(),
                             storeName = storeName,
-                            storePhone = data["storePhone"].orEmpty(),
-                            storeImage = data["storeImage"].orEmpty(),
+                            storePhone = storePhone,
+                            storeImage = storeImage,
                             pickupAddress = pickup.ifBlank { "مقر التاجر" },
                             deliveryAddress = delivery.ifBlank { "عنوان العميل" },
                             storeLocationUrl = data["storeLocationUrl"].orEmpty(),
@@ -113,6 +155,7 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             distanceKm = distanceKm,
                             status = com.example.data.OrderStatus.PENDING,
                             firestoreDocId = orderKey,
+                            merchantId = merchantId,
                             offerExpiresAt = effectiveExpiresAt
                         )
                         val savedOrderId = runCatching {
