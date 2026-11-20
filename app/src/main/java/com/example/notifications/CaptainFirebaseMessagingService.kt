@@ -81,7 +81,9 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             ?: "مطعم مسجل"
                         val pickup = data["pickupAddress"].orEmpty()
                         val delivery = data["deliveryAddress"].orEmpty()
-                        val fee = data["deliveryFee"]?.toDoubleOrNull() ?: 25.0
+                        val fee = data["deliveryFee"]?.toDoubleOrNull()
+                            ?: data["serviceFee"]?.replace(Regex("[^0-9.]"), "")?.toDoubleOrNull()
+                            ?: 0.0
                         val distanceKm = data["distanceKm"]?.toDoubleOrNull() ?: 3.0
                         val orderCode = data["orderCode"]
                             ?: data["orderCodes"]
