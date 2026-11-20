@@ -2515,7 +2515,9 @@ class CaptainRepository(
                         "isLoggedIn" to false,
                         "isOnline" to false,
                         "availabilityStatus" to "offline",
-                        "presenceStatus" to "offline"
+                        "presenceStatus" to "offline",
+                        "fcmToken" to FieldValue.delete(),
+                        "updatedAt" to FieldValue.serverTimestamp()
                     )
                 )
             }
