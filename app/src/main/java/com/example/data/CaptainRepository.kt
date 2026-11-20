@@ -739,6 +739,8 @@ class CaptainRepository(
                                             context = ctx,
                                             orderKey = enrichedOrder.firestoreDocId.ifBlank { savedOrderId.toString() },
                                             storeName = enrichedOrder.storeName,
+                                            storePhone = enrichedOrder.storePhone,
+                                            storeImage = enrichedOrder.storeImage,
                                             pickupAddress = enrichedOrder.pickupAddress,
                                             deliveryAddress = enrichedOrder.deliveryAddress,
                                             deliveryFee = enrichedOrder.deliveryFee,
