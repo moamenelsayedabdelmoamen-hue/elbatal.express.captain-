@@ -50,7 +50,9 @@ jobs:
           for report in reports:
               root = ET.parse(report).getroot()
               for case in root.findall(".//testcase"):
-                  failure = case.find("failure") or case.find("error")
+                  failure = case.find("failure")
+                  if failure is None:
+                      failure = case.find("error")
                   if failure is not None:
                       print(f"FAILED: {case.get('classname')} > {case.get('name')}")
                       print(failure.get("message", ""))
