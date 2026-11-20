@@ -3364,11 +3364,20 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
         "vendorName", "vendor", "shopName", "shop",
         default = "مطعم الشريك"
     )
-    val storePhone = safeString("storePhone", "restaurantPhone", "restaurant_phone", "store_phone", "vendorPhone")
-    val storeImage = safeString(
-        "storeImage", "merchantImageUrl", "merchantLogo", "profileImageUrl",
-        "logoUrl", "storePhotoUrl", "restaurantImage", "restaurant_image",
-        "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl"
+    val storePhone = safeString(
+        "storePhone", "merchantPhone", "restaurantPhone", "restaurant_phone",
+        "store_phone", "vendorPhone"
+    )
+    val storeImage = resolveMerchantImageReference(
+        storeImage = safeString(
+            "storeImage", "merchantImageUrl", "merchantLogo", "profileImageUrl",
+            "logoUrl", "storeLogo", "storePhotoUrl", "restaurantImage",
+            "restaurant_image", "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl"
+        ),
+        storeImagePath = safeString(
+            "storeImagePath", "store_image_path", "merchantStoragePath", "merchant_storage_path",
+            "logoStoragePath", "logo_storage_path", "merchantLogoPath", "merchant_logo_path"
+        )
     )
     val pickup = safeString(
         "pickupAddress", "pickup_address", "restaurant_address", "restaurantAddress",
