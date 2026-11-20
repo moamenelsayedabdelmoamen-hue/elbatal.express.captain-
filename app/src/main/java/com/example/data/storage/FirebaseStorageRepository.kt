@@ -625,7 +625,7 @@ class FirebaseStorageRepository(
 
     private fun resolveMimeType(context: Context, uri: Uri): String {
         val resolverType = context.contentResolver.getType(uri)?.lowercase()?.trim()
-        if (resolverType in ALLOWED_IMAGE_MIME_TYPES) return resolverType!!
+        if (resolverType?.let { it in ALLOWED_IMAGE_MIME_TYPES } == true) return resolverType
 
         val path = uri.path.orEmpty()
         val ext = path.substringAfterLast('.', "").lowercase()
@@ -635,7 +635,7 @@ class FirebaseStorageRepository(
             "webp" -> "image/webp"
             else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.lowercase()
         }
-        if (extensionType in ALLOWED_IMAGE_MIME_TYPES) return extensionType!!
+        if (extensionType?.let { it in ALLOWED_IMAGE_MIME_TYPES } == true) return extensionType
 
         // Android Photo Picker and document providers often expose valid images without a MIME
         // type or file extension. Inspect the actual file signature rather than trusting its name.
