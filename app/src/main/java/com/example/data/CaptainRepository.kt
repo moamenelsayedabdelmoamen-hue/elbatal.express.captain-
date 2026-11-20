@@ -2507,6 +2507,13 @@ class CaptainRepository(
             CaptainNotificationManager.clearNotificationState(ctx)
         }
         storageRepository.clearSessionMemoryCache()
+        context?.let { ctx ->
+            runCatching {
+                java.io.File(ctx.filesDir, "merchant_images").deleteRecursively()
+            }.onFailure { error ->
+                Log.w("CaptainRepository", "Could not clear cached merchant logos on logout: ${error.message}")
+            }
+        }
         try {
             val uid = authBackend.currentUser()?.uid
             if (!uid.isNullOrBlank()) {
