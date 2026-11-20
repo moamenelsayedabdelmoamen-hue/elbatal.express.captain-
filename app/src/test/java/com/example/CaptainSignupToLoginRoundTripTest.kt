@@ -404,7 +404,7 @@ class CaptainSignupToLoginRoundTripTest {
                     if (showProfile.value) {
                         ProfileScreen(
                             captain = restoredAfterPhoneLogin,
-                            onSaveProfileDetails = { _, _, _, _, _, _, _ -> },
+                            onSaveProfile = { _, _, _, _, _, _ -> },
                             onLogout = {}
                         )
                     } else {
