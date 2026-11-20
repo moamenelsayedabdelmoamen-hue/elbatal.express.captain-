@@ -1,5 +1,6 @@
 package com.example.notifications
 
+import android.net.Uri
 import android.util.Log
 import com.example.data.AppDatabase
 import com.example.data.ShiftManager
@@ -14,21 +15,28 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 
 class CaptainFirebaseMessagingService : FirebaseMessagingService() {
 
     /**
-     * Resolve only a server-supplied merchant Storage path or HTTP(S) URL.
-     * The captain app never uploads or edits the merchant's delivery fee/profile.
+     * Resolve a server-supplied merchant image without creating a Firebase public
+     * download URL. Storage paths are fetched through the authenticated Firebase SDK
+     * and cached in the app's private files directory for Coil/AsyncImage.
      */
-    private suspend fun resolveMerchantImageUrl(rawUrl: String, rawPath: String): String {
+    private suspend fun resolveMerchantImageUrl(
+        rawUrl: String,
+        rawPath: String,
+        merchantId: String
+    ): String {
         val url = rawUrl.trim()
         if (url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)) {
             return url
         }
 
         val path = rawPath.trim().ifBlank { url }
-        if (path.isBlank()) return ""
+        if (path.isBlank() || merchantId.isBlank()) return ""
 
         return runCatching {
             val storage = FirebaseStorage.getInstance()
@@ -39,9 +47,23 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
             } else {
                 return@runCatching ""
             }
-            reference.downloadUrl.await().toString()
+
+            val imageBytes = reference.getBytes(MAX_MERCHANT_IMAGE_BYTES).await()
+            if (imageBytes.isEmpty()) return@runCatching ""
+
+            val imageDirectory = File(applicationContext.filesDir, MERCHANT_IMAGE_CACHE_DIR)
+            if (!imageDirectory.exists() && !imageDirectory.mkdirs()) {
+                throw IllegalStateException("Could not create private merchant image cache")
+            }
+            val safeName = merchantId.hashCode().toUInt().toString(16)
+            val imageFile = File(imageDirectory, "$safeName.webp")
+            FileOutputStream(imageFile).use { output ->
+                output.write(imageBytes)
+                output.flush()
+            }
+            Uri.fromFile(imageFile).toString()
         }.onFailure { error ->
-            Log.w(TAG, "Could not resolve merchant profile image from Storage path", error)
+            Log.w(TAG, "Could not securely download merchant profile image from Firebase Storage", error)
         }.getOrDefault("")
     }
 
@@ -110,7 +132,8 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                         val merchantId = data["merchantId"].orEmpty().trim()
                         val storeImage = resolveMerchantImageUrl(
                             rawUrl = data["storeImage"].orEmpty(),
-                            rawPath = data["storeImagePath"].orEmpty()
+                            rawPath = data["storeImagePath"].orEmpty(),
+                            merchantId = merchantId
                         )
                         val pickup = data["pickupAddress"].orEmpty()
                         val delivery = data["deliveryAddress"].orEmpty()
@@ -213,5 +236,7 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "CaptainFcmService"
+        private const val MERCHANT_IMAGE_CACHE_DIR = "merchant_images"
+        private const val MAX_MERCHANT_IMAGE_BYTES = 10L * 1024L * 1024L
     }
 }
