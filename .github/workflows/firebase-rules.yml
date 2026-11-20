@@ -28,4 +28,4 @@ jobs:
           node-version: 20
       - run: npm install --prefix .ci-deps @firebase/rules-unit-testing firebase
       - run: npm install --global firebase-tools
-      - run: firebase emulators:exec --only firestore,storage --project demo-elbatal "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules node --test security_rules.test.js"
+      - run: firebase emulators:exec --only firestore,storage --project el-batal-express-956ae "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules node --test security_rules.test.js"
