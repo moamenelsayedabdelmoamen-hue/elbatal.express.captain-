@@ -3356,17 +3356,23 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
     )
     val custPhone = safeString(
         "customerPhone", "customer_phone", "client_phone", "clientPhone",
-        "phone", "phoneNumber", "mobile", default = "01000000000"
+        "phone", "phoneNumber", "mobile", default = ""
     )
     val storeName = safeString(
-        "restaurant name", "restaurant_name", "restaurantName",
+        "merchantName", "merchant_name", "restaurant name", "restaurant_name", "restaurantName",
         "storeName", "store_name", "restaurant", "store",
         "vendorName", "vendor", "shopName", "shop",
         default = "مطعم الشريك"
     )
-    val storePhone = safeString("storePhone", "restaurantPhone", "restaurant_phone", "store_phone", "vendorPhone")
+    // These values are copied from merchants/{merchantId} by the trusted order-creation
+    // backend; Captain app is read-only for merchant identity and order data.
+    val storePhone = safeString(
+        "storePhone", "merchantPhone", "merchant_phone", "restaurantPhone",
+        "restaurant_phone", "store_phone", "vendorPhone", "phone"
+    )
     val storeImage = safeString(
-        "storeImage", "storePhotoUrl", "restaurantImage", "restaurant_image",
+        "storeImage", "merchantLogoUrl", "merchantLogo", "logoUrl", "logo",
+        "storePhotoUrl", "restaurantImage", "restaurant_image",
         "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl"
     )
     val pickup = safeString(
@@ -3403,7 +3409,7 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
     val itemsCnt = safeLong("itemsCount", "items_count", "quantity", default = 1L).toInt()
 
     val totalAmt = safeDouble("price", "orderTotalAmount", "total", "total_price", "amount", default = 0.0)
-    val fee = safeDouble("deliveryFee", "delivery_fee", "shippingFee", "fee", default = 25.0)
+    val fee = safeDouble("deliveryFee", "delivery_fee", "shippingFee", "serviceFee", "fee", default = 0.0)
     val dist = safeDouble("distanceKm", "distance_km", "distance", default = 3.0)
 
     val captId = safeString(
