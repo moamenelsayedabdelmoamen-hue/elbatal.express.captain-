@@ -44,3 +44,40 @@ jobs:
           name: ${{ github.event.repository.name }}-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Print unit test failure details
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report_dir = Path("app/build/test-results/testDebugUnitTest")
+          reports = sorted(report_dir.glob("TEST-*.xml")) if report_dir.exists() else []
+          failures = 0
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.iter("testcase"):
+                  for issue in list(case.findall("failure")) + list(case.findall("error")):
+                      failures += 1
+                      print(f"FAILED: {case.get('classname')}.{case.get('name')}")
+                      print(f"DETAIL: {issue.get('message', '').strip()}")
+                      if (issue.text or "").strip():
+                          print((issue.text or "").strip()[-5000:])
+          if not reports:
+              print("No Gradle JUnit XML reports were produced.")
+          elif failures == 0:
+              print(f"JUnit reports found: {len(reports)}; no failed test cases.")
+          else:
+              print(f"Total failing/error test cases: {failures}")
+          PY
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captain-unit-test-reports-${{ github.run_id }}
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 7
