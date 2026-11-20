@@ -159,7 +159,7 @@ object CaptainNotificationManager {
         deliveryAddress: String = "",
         storePhone: String = "",
         storeImage: String = "",
-        deliveryFee: Double = 25.0,
+        deliveryFee: Double = 0.0,
         orderCode: String = "",
         bypassDedupe: Boolean = false,
         orderId: Long = 0L,
