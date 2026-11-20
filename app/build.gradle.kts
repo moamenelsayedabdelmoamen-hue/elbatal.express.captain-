@@ -74,7 +74,7 @@ secrets {
 }
 
 googleServices {
-    missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN
+    missingGoogleServicesStrategy = MissingGoogleServicesStrategy.FAIL
 }
 
 // Some unused dependencies are commented out below instead of being removed.
