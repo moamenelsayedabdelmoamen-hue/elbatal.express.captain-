@@ -1,6 +1,4 @@
 
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -73,9 +71,8 @@ secrets {
     defaultPropertiesFileName = ".env.example"
 }
 
-googleServices {
-    missingGoogleServicesStrategy = MissingGoogleServicesStrategy.FAIL
-}
+// CI validates that app/google-services.json exists and matches the production Firebase app.
+// The Google Services plugin version in this project supports WARN, not FAIL.
 
 // Some unused dependencies are commented out below instead of being removed.
 dependencies {
