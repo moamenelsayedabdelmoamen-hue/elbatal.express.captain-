@@ -175,7 +175,7 @@ object CaptainNotificationManager {
             storeImage.isBlank() ||
             merchantId.isBlank() ||
             !deliveryFee.isFinite() ||
-            deliveryFee < 0.0
+            deliveryFee <= 0.0
         ) {
             Log.e(TAG, "Refusing incoming offer: trusted merchant name, phone, logo, merchant UID and merchant-entered fee are required.")
             return false
