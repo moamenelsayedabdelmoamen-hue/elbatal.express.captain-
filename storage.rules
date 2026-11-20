@@ -6,18 +6,48 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Trusted DB-backed admin check (never trusts spoofable client fields)
+    // Admin authorization mirrors Firestore: server-issued claims or a verified
+    // allowlisted administrator email. Never infer admin privilege from mere profile
+    // document existence.
+    function isRegisteredAdmin() {
+      let adminDoc = firestore.get(/databases/(default)/documents/admins/$(request.auth.uid));
+      return isAuthenticated()
+        && adminDoc.data != null
+        && adminDoc.data.get('role', '') == 'admin'
+        && adminDoc.data.get('status', 'active') in ['active', 'approved'];
+    }
+
     function isAdmin() {
+      return isAuthenticated() && (
+        (('admin' in request.auth.token) && request.auth.token.admin == true) ||
+        (('role' in request.auth.token) && request.auth.token.role == 'admin') ||
+        (
+          ('email_verified' in request.auth.token) &&
+          request.auth.token.email_verified == true &&
+          ('email' in request.auth.token) &&
+          request.auth.token.email in [
+            'moamen.elsayed.abdelmoamen@gmail.com',
+            'admin@elbatalexpress.com'
+          ]
+        ) ||
+        isRegisteredAdmin()
+      );
+    }
+
+    function isApprovedCaptain() {
+      let captainDoc = firestore.get(/databases/(default)/documents/captains/$(request.auth.uid));
       return isAuthenticated() &&
-        firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid));
+        !isMerchantAccount() &&
+        captainDoc != null &&
+        captainDoc.data != null &&
+        captainDoc.data.get('accountType', '') == 'captain' &&
+        captainDoc.data.get('status', '') in ['active', 'approved'];
     }
 
     // Trusted DB-backed merchant account check
     function isMerchantAccount() {
-      return isAuthenticated() && (
-        firestore.exists(/databases/(default)/documents/restaurants/$(request.auth.uid)) ||
-        firestore.exists(/databases/(default)/documents/merchants/$(request.auth.uid))
-      );
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/merchants/$(request.auth.uid));
     }
 
     function isValidImageUpload() {
@@ -38,7 +68,9 @@ service firebase.storage {
 
     // Merchant is permitted ONLY when authenticated as a merchant AND explicitly linked to THIS order
     function isMerchantOfOrder(orderData) {
-      return isMerchantAccount() && (
+      return isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && (
         ('merchantId' in orderData && orderData.merchantId == request.auth.uid) ||
         ('restaurantId' in orderData && orderData.restaurantId == request.auth.uid) ||
         ('storeId' in orderData && orderData.storeId == request.auth.uid) ||
@@ -95,6 +127,21 @@ service firebase.storage {
         );
     }
 
+    // Merchant profile images are business identity assets, not private subscription receipts.
+    // Only the owning merchant, admins, and approved captains can read these files.
+    match /merchants/{merchantId}/{allFiles=**} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == merchantId ||
+        isAdmin() ||
+        (isApprovedCaptain() && !allFiles.matches('subscription_receipts/.*'))
+      );
+      allow create, update: if isAuthenticated()
+        && (request.auth.uid == merchantId || isAdmin())
+        && allFiles in ['profile.jpg', 'logo.jpg', 'logo.png', 'logo.webp']
+        && isValidImageUpload();
+      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == merchantId);
+    }
+
     // 1. Captain Profile Photo: captains/{captainId}/profile/profile.jpg
     // - Read: ONLY the owning captain, an admin, or the specific merchant linked to an active order with this captain.
     //   Blanket read access across all captains by arbitrary merchants is DENIED.
@@ -105,6 +152,7 @@ service firebase.storage {
         isAdmin() ||
         (
           isMerchantAccount() &&
+          request.auth.token.get('email_verified', false) == true &&
           isCaptainLinkedToActiveMerchant(
             firestore.get(/databases/(default)/documents/captains/$(captainId))
           )

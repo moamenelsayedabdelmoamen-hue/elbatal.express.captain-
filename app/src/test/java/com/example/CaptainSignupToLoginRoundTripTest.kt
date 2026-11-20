@@ -261,7 +261,29 @@ class CaptainSignupToLoginRoundTripTest {
                 override suspend fun callFunction(
                     functionName: String,
                     payload: Map<String, Any?>
-                ): Map<String, Any?> = mapOf("success" to true, "earnedAmount" to 25.0)
+                ): Map<String, Any?> {
+                    return when (functionName) {
+                        // Model the rate-limited pre-login Dashboard callable.
+                        // The real app must never query the captains collection directly before auth.
+                        "resolveCaptainEmailByPhone" -> {
+                            val phone = payload["phone"]?.toString().orEmpty()
+                            val variants = (payload["variants"] as? List<*>)?.map { it?.toString().orEmpty() }.orEmpty()
+                            val match = backend.captains.values.firstOrNull { captain ->
+                                val accountType = captain["accountType"]?.toString()?.lowercase().orEmpty()
+                                val phoneFields = listOf(
+                                    captain["phone"]?.toString().orEmpty(),
+                                    captain["phoneNumber"]?.toString().orEmpty()
+                                )
+                                accountType == "captain" && phoneFields.any { it == phone || it in variants }
+                            }
+                            mapOf(
+                                "found" to (match != null),
+                                "email" to match?.get("email")?.toString().orEmpty()
+                            )
+                        }
+                        else -> mapOf("success" to true, "earnedAmount" to 25.0)
+                    }
+                }
             },
             authUidProvider = { backend.currentUid ?: "anon" }
         )
@@ -404,7 +426,7 @@ class CaptainSignupToLoginRoundTripTest {
                     if (showProfile.value) {
                         ProfileScreen(
                             captain = restoredAfterPhoneLogin,
-                            onSaveProfileDetails = { _, _, _, _, _, _, _ -> },
+                            onSaveProfile = { _, _, _, _, _, _ -> },
                             onLogout = {}
                         )
                     } else {
@@ -428,13 +450,13 @@ class CaptainSignupToLoginRoundTripTest {
         composeTestRule.onNodeWithTag("profile_fullname_input").performScrollTo().assertTextContains("محمود حسن إبراهيم")
         composeTestRule.onNodeWithTag("profile_phone_input").performScrollTo().assertTextContains("01066778899")
         composeTestRule.onNodeWithTag("profile_email_input").performScrollTo().assertTextContains("mahmoud.captain@elbatal.com")
-        composeTestRule.onNodeWithTag("profile_address_input").performScrollTo().assertTextContains("الجيزة - الدقي شارع التحرير")
         composeTestRule.onNodeWithTag("profile_vehicle_input").performScrollTo().assertTextContains("موتوسيكل هوجن 150")
-        composeTestRule.onNodeWithTag("national_id_section_card").performScrollTo()
-        composeTestRule.onAllNodesWithText("تم الحفظ والتوثيق بنجاح 🔒").fetchSemanticsNodes().let {
-            assertEquals("Both ID front and back must show verified saved badge", 2, it.size)
-        }
-        composeTestRule.onNodeWithTag("profile_saved_license_image").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("national_id_completion_banner")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("مستند البطاقة الشخصية مكتمل: تم رفع الوجه الأمامي والخلفي بنجاح ✓")
+            .assertIsDisplayed()
+        assertEquals("License image path must remain persisted after relogin", expectedLicensePath, restoredAfterPhoneLogin.licenseImagePath)
 
         // 9. Switch to DashboardScreen and verify captain name renders from the same restored entity
         composeTestRule.runOnUiThread { showProfile.value = false }

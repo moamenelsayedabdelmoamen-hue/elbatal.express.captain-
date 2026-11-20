@@ -625,15 +625,63 @@ class FirebaseStorageRepository(
 
     private fun resolveMimeType(context: Context, uri: Uri): String {
         val resolverType = context.contentResolver.getType(uri)?.lowercase()?.trim()
-        if (!resolverType.isNullOrBlank()) return resolverType
+        // ContentResolver is authoritative when it returns a supported image type.
+        if (resolverType in ALLOWED_IMAGE_MIME_TYPES) return resolverType!!
 
         val path = uri.path.orEmpty()
         val ext = path.substringAfterLast('.', "").lowercase()
-        return when (ext) {
+        val extensionType = when (ext) {
             "jpg", "jpeg" -> "image/jpeg"
             "png" -> "image/png"
             "webp" -> "image/webp"
-            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.lowercase() ?: "application/octet-stream"
+            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.lowercase()
+        }
+        if (extensionType in ALLOWED_IMAGE_MIME_TYPES) return extensionType!!
+
+        // Photo Picker / document providers may expose extensionless files or report
+        // application/octet-stream. Detect the actual image format from its signature
+        // instead of rejecting valid JPEG/PNG/WEBP content based only on its filename.
+        detectImageMimeTypeBySignature(context, uri)?.let { return it }
+
+        return resolverType?.takeIf { it.isNotBlank() }
+            ?: extensionType
+            ?: "application/octet-stream"
+    }
+
+    private fun detectImageMimeTypeBySignature(context: Context, uri: Uri): String? {
+        val header = ByteArray(12)
+        val bytesRead = runCatching {
+            ImageCompressor.openUriInputStream(context, uri)?.use { input ->
+                var total = 0
+                while (total < header.size) {
+                    val count = input.read(header, total, header.size - total)
+                    if (count <= 0) break
+                    total += count
+                }
+                total
+            } ?: 0
+        }.getOrDefault(0)
+
+        fun unsigned(index: Int): Int = header[index].toInt() and 0xFF
+        return when {
+            bytesRead >= 3 &&
+                unsigned(0) == 0xFF &&
+                unsigned(1) == 0xD8 &&
+                unsigned(2) == 0xFF -> "image/jpeg"
+
+            bytesRead >= 8 &&
+                unsigned(0) == 0x89 &&
+                header.copyOfRange(1, 4).toString(Charsets.US_ASCII) == "PNG" &&
+                unsigned(4) == 0x0D &&
+                unsigned(5) == 0x0A &&
+                unsigned(6) == 0x1A &&
+                unsigned(7) == 0x0A -> "image/png"
+
+            bytesRead >= 12 &&
+                header.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+                header.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WEBP" -> "image/webp"
+
+            else -> null
         }
     }
 

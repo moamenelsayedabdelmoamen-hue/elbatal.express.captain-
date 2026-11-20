@@ -620,6 +620,9 @@ class CaptainAuthAndIsolationTest {
             context = appContext,
             orderKey = "ORD_888",
             storeName = "مطعم التجربة",
+            storePhone = "01012345678",
+            storeImage = "https://example.test/merchant-logo.webp",
+            merchantId = "merchant_demo_888",
             pickupAddress = "مدينة نصر",
             deliveryAddress = "التجمع الخامس",
             deliveryFee = 30.0,
@@ -634,16 +637,14 @@ class CaptainAuthAndIsolationTest {
     // UI Verification: SignUpScreen (with address) & EmailVerificationScreen
     // -------------------------------------------------------------------------
     @Test
-    fun uiScreens_signUpPassesAddress_andEmailVerificationHandlesCheckAndResend() {
-        var submittedAddress = ""
+    fun uiScreens_signUpPassesCoreFields_andEmailVerificationHandlesCheckAndResend() {
         var submittedEmail = ""
 
         composeTestRule.setContent {
             ElBatalTheme {
                 SignUpScreen(
-                    onSignUpClick = { _, _, email, _, _, address, _, _, _, _, _, _, _ ->
+                    onSignUpClick = { _, _, email, _, _, _, _, _, _, _, _, _ ->
                         submittedEmail = email
-                        submittedAddress = address
                     },
                     onNavigateLogin = {}
                 )
@@ -651,11 +652,10 @@ class CaptainAuthAndIsolationTest {
         }
         composeTestRule.waitForIdle()
 
-        // Fill name, phone, email, address, password, confirmPassword
+        // Fill the fields currently present in the captain sign-up form
         composeTestRule.onNodeWithText("مثال: أحمد محمد علي").performScrollTo().performTextInput("كابتن كريم")
         composeTestRule.onNodeWithText("مثال: 01099887766").performScrollTo().performTextInput("01012345678")
         composeTestRule.onNodeWithText("مثال: captain@example.com").performScrollTo().performTextInput("karim@elbatal.com")
-        composeTestRule.onNodeWithTag("signup_address_input").performScrollTo().performTextInput("القاهرة - المعادي")
         composeTestRule.onNodeWithText("أدخل 6 أحرف أو أرقام على الأقل").performScrollTo().performTextInput("Pass1234")
         composeTestRule.onNodeWithText("أعد إدخال كلمة المرور للتأكيد").performScrollTo().performTextInput("Pass1234")
 
@@ -663,7 +663,6 @@ class CaptainAuthAndIsolationTest {
         composeTestRule.waitForIdle()
 
         assertEquals("karim@elbatal.com", submittedEmail)
-        assertEquals("القاهرة - المعادي", submittedAddress)
     }
 
     @Test

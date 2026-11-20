@@ -588,7 +588,7 @@ fun ProfileScreen(
                             unfocusedContainerColor = DarkSurfaceVariant
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("profile_fullname_input")
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -609,7 +609,7 @@ fun ProfileScreen(
                             unfocusedContainerColor = DarkSurfaceVariant
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("profile_phone_input")
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -628,7 +628,7 @@ fun ProfileScreen(
                             unfocusedContainerColor = DarkSurfaceVariant
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("profile_email_input")
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -647,7 +647,7 @@ fun ProfileScreen(
                             unfocusedContainerColor = DarkSurfaceVariant
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("profile_vehicle_input")
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))

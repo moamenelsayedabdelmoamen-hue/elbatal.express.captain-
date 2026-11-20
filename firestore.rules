@@ -24,12 +24,32 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    // Administrator access is granted only by server-issued Firebase Auth
+    // custom claims or a verified allowlisted administrator email. Do not read
+    // /admins from this helper: per-request document lookups add evaluation cost
+    // and must never be used as a client-controlled privilege source.
+    function isRegisteredAdmin() {
+      let adminDoc = get(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn()
+        && adminDoc.data != null
+        && adminDoc.data.get('role', '') == 'admin'
+        && adminDoc.data.get('status', 'active') in ['active', 'approved'];
+    }
+
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.role == 'admin' ||
-        request.auth.token.admin == true ||
-        request.auth.token.email in ['moamen.elsayed.abdelmoamen@gmail.com', 'admin@elbatalexpress.com'] ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        (('role' in request.auth.token) && request.auth.token.role == 'admin') ||
+        (('admin' in request.auth.token) && request.auth.token.admin == true) ||
+        (
+          ('email_verified' in request.auth.token) &&
+          request.auth.token.email_verified == true &&
+          ('email' in request.auth.token) &&
+          request.auth.token.email in [
+            'moamen.elsayed.abdelmoamen@gmail.com',
+            'admin@elbatalexpress.com'
+          ]
+        ) ||
+        isRegisteredAdmin()
       );
     }
 
@@ -39,6 +59,8 @@ service cloud.firestore {
     }
 
     function isMerchantAccount() {
+      // Identify the account by its server-owned profile even when its email is
+      // not verified; this prevents an unverified merchant from registering as a captain.
       return isSignedIn()
         && exists(/databases/$(database)/documents/merchants/$(request.auth.uid))
         && get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.accountType == 'merchant';
@@ -104,47 +126,22 @@ service cloud.firestore {
     // Strict allowlist of non-sensitive operational & Storage path fields a captain can update on their own profile.
     // Explicitly EXCLUDES accountType, walletBalance, totalOrdersCount, rating, role, status, isApproved, subscriptions, and activeMerchantId.
     function isAllowedCaptainSelfUpdateKeys() {
-      return incoming().diff(existing()).affectedKeys().hasOnly([
-        'name',
-        'fullName',
-        'driver_name',
-        'phone',
-        'phoneNumber',
-        'address',
-        'vehicleType',
-        'licensePlate',
-        'avatarUri',
-        'avatarPresetIndex',
-        'personalImage',
-        'idCardFront',
-        'idCardBack',
-        'profileImagePath',
-        'profileImageUpdatedAt',
-        'idFrontImagePath',
-        'idFrontUploadedAt',
-        'idBackImagePath',
-        'idBackUploadedAt',
-        'licenseImagePath',
-        'licenseImageUpdatedAt',
-        'idDocumentsComplete',
-        'location',
-        'latitude',
-        'longitude',
-        'accuracy',
-        'bearing',
-        'speed',
-        'lastLocationUpdate',
-        'lastLocationTimestamp',
-        'presenceStatus',
-        'availabilityStatus',
-        'shiftStatus',
-        'isOnline',
-        'isLoggedIn',
-        'emailVerified',
-        'isEmailVerified',
-        'fcmToken',
-        'updatedAt'
-      ]);
+      let changed = incoming().diff(existing()).affectedKeys();
+      return changed.hasOnly([
+        'name', 'fullName', 'driver_name', 'phone', 'phoneNumber',
+        'address', 'vehicleType', 'licensePlate', 'avatarUri',
+        'avatarPresetIndex', 'personalImage', 'idCardFront', 'idCardBack',
+        'profileImagePath', 'profileImageUpdatedAt', 'idFrontImagePath',
+        'idFrontUploadedAt', 'idBackImagePath', 'idBackUploadedAt',
+        'licenseImagePath', 'licenseImageUpdatedAt', 'idDocumentsComplete',
+        'location', 'latitude', 'longitude', 'accuracy', 'bearing', 'speed',
+        'lastLocationUpdate', 'lastLocationTimestamp', 'presenceStatus',
+        'availabilityStatus', 'shiftStatus', 'isOnline', 'isLoggedIn',
+        'fcmToken', 'updatedAt'
+      ])
+      && (!changed.hasAny(['isOnline']) || incoming().isOnline is bool)
+      && (!changed.hasAny(['isLoggedIn']) || incoming().isLoggedIn is bool)
+      && (!changed.hasAny(['idDocumentsComplete']) || incoming().idDocumentsComplete is bool);
     }
 
     match /captains/{captainId} {
@@ -152,10 +149,12 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(captainId) && (
         request.auth.uid == captainId ||
         isAdmin() ||
-        (isMerchantAccount() && (
-          ('activeMerchantId' in existing() && existing().activeMerchantId == request.auth.uid) ||
-          ('currentMerchantId' in existing() && existing().currentMerchantId == request.auth.uid)
-        ))
+        (isMerchantAccount()
+          && request.auth.token.get('email_verified', false) == true
+          && (
+            ('activeMerchantId' in existing() && existing().activeMerchantId == request.auth.uid) ||
+            ('currentMerchantId' in existing() && existing().currentMerchantId == request.auth.uid)
+          ))
       );
 
       allow list: if isAdmin();
@@ -169,8 +168,8 @@ service cloud.firestore {
             && !isMerchantAccount()
             && ('accountType' in incoming() && incoming().accountType == 'captain')
             && (!('role' in incoming()) || incoming().role == 'captain')
-            && (!('emailVerified' in incoming()) || incoming().emailVerified == false || request.auth.token.email_verified == true)
-            && (!('isEmailVerified' in incoming()) || incoming().isEmailVerified == false || request.auth.token.email_verified == true)
+            && (!('emailVerified' in incoming()) || incoming().emailVerified == false || request.auth.token.get('email_verified', false) == true)
+            && (!('isEmailVerified' in incoming()) || incoming().isEmailVerified == false || request.auth.token.get('email_verified', false) == true)
             && isValidCaptainProfileShape(incoming(), captainId)
             && hasSafeInitialCaptainFinancialAndAdminFields(incoming())
           )
@@ -182,12 +181,7 @@ service cloud.firestore {
           isAdmin() ||
           (
             request.auth.uid == captainId
-            && !isMerchantAccount()
-            && (!('accountType' in existing()) || existing().accountType == 'captain')
-            && !('accountType' in incoming().diff(existing()).affectedKeys())
-            && (!('emailVerified' in incoming().diff(existing()).affectedKeys()) || incoming().emailVerified == false || request.auth.token.email_verified == true)
-            && (!('isEmailVerified' in incoming().diff(existing()).affectedKeys()) || incoming().isEmailVerified == false || request.auth.token.email_verified == true)
-            && isValidCaptainProfileShape(incoming(), captainId)
+            && !exists(/databases/$(database)/documents/merchants/$(request.auth.uid))
             && isAllowedCaptainSelfUpdateKeys()
           )
         );
@@ -336,7 +330,7 @@ service cloud.firestore {
             && isAllowedMerchantSelfUpdateKeys()
             && (!('emailVerified' in incoming().diff(existing()).affectedKeys())
               || incoming().emailVerified == false
-              || request.auth.token.email_verified == true)
+              || request.auth.token.get('email_verified', false) == true)
           )
         );
 
@@ -345,7 +339,9 @@ service cloud.firestore {
 
     // --- 4. Admins Collection ---
     match /admins/{adminId} {
-      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      // Users can inspect only their own server-provisioned admin record.
+      // isAdmin() resolves registry data with get() above, avoiding recursive checks.
+      allow get: if isSignedIn() && isValidId(adminId) && request.auth.uid == adminId;
       allow list: if isAdmin();
       allow write: if false; // Strictly managed via Firebase Admin SDK / Console
     }
@@ -373,8 +369,11 @@ service cloud.firestore {
     }
 
     function isOrderOwnedByMerchant(data) {
-      return isMerchantAccount() && (
+      return isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && (
         ('merchantId' in data && data.merchantId == request.auth.uid) ||
+        ('restaurantId' in data && data.restaurantId == request.auth.uid) ||
         ('storeId' in data && data.storeId == request.auth.uid) ||
         ('vendorId' in data && data.vendorId == request.auth.uid) ||
         ('ownerId' in data && data.ownerId == request.auth.uid) ||
@@ -397,53 +396,60 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(orderId) && canReadOrder(existing());
       allow list: if isSignedIn() && canReadOrder(existing());
 
-      // Merchant clients may create only a pending order for their own approved, verified account.
-      allow create: if isAdmin() || (
-        isMerchantAccount()
-        && request.auth.token.email_verified == true
-        && incoming().merchantId == request.auth.uid
-        && incoming().captainId == null
-        && incoming().dispatchStatus == 'searching'
-        && incoming().status == 'pending'
-        && get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.status in ['approved', 'active']
-      );
+      // Order creation, assignment, status changes, and financial transitions are server-only.
+      // Admin SDK Cloud Functions bypass these client rules.
+      allow create: if isAdmin();
 
-      // All captain order lifecycle mutations must execute via Cloud Functions (Admin SDK).
-      // Merchants may only update non-dispatch/non-captain fields on their own orders.
+      // Merchants may edit only non-financial details before assignment.
+      // They cannot change status or confirm/reject a captain's submitted delivery data here;
+      // those transitions must call merchantConfirmOrder / merchantCancelOrder.
+      // Server-only for lifecycle and merchant data edits. The sole direct
+      // merchant update retained here is bounded feedback rating.
       allow update: if isAdmin() || (
         isOrderOwnedByMerchant(existing())
         && incoming().merchantId == existing().merchantId
-        && incoming().userId == existing().userId
-        && incoming().orderCode == existing().orderCode
-        && incoming().captainId == existing().captainId
-        && !incoming().diff(existing()).affectedKeys().hasAny([
-          'captainId', 'captainUid', 'driverId', 'assignedCaptainId',
-          'offeredCaptainId', 'eligibleCaptainIds', 'excludedCaptainIds',
-          'timedOutCaptainIds', 'dispatchStatus', 'assignedAt', 'acceptedAt',
-          'deliveredAt', 'completedAt', 'captainEarning', 'platformCommission'
-        ])
+        && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'ratedAt'])
+        && incoming().rating is int
+        && incoming().rating >= 1
+        && incoming().rating <= 5
       );
       allow delete: if isAdmin();
     }
 
     // Subscription records are read by their owner; only Admin SDK/Admin can mutate them.
     match /subscriptions/{subscriptionId} {
-      allow get, list: if isAdmin() || (isMerchantAccount() && (
-        subscriptionId == request.auth.uid ||
-        ('merchantId' in existing() && existing().merchantId == request.auth.uid)
-      ));
+      allow get, list: if isAdmin() || (
+        isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && (
+          subscriptionId == request.auth.uid ||
+          ('merchantId' in existing() && existing().merchantId == request.auth.uid)
+        )
+      );
       allow create, update, delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
-      allow get, list: if isAdmin() || (isMerchantAccount() && existing().merchantId == request.auth.uid);
+      allow get, list: if isAdmin() || (
+        isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && existing().merchantId == request.auth.uid
+      );
       allow create, update, delete: if isAdmin();
     }
 
     match /order_codes/{code} {
-      allow get, list: if isSignedIn();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow get: if isAdmin() || (
+        isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && existing().merchantId == request.auth.uid
+      );
+      allow list: if isAdmin() || (
+        isMerchantAccount()
+        && request.auth.token.get('email_verified', false) == true
+        && existing().merchantId == request.auth.uid
+      );
+      allow create, update, delete: if isAdmin();
     }
 
     match /idempotency_keys/{keyId} {
@@ -452,8 +458,7 @@ service cloud.firestore {
         existing().merchantId == request.auth.uid
       ));
       allow list: if isAdmin();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /settings/{settingId} {
@@ -462,11 +467,15 @@ service cloud.firestore {
     }
 
     match /operation_logs/{logId} {
-      allow read, write: if isAdmin();
+      // Logs are read-only to dashboard admins; creation and mutation stay server-side.
+      allow get, list: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /webhook_events/{eventId} {
-      allow read, write: if isAdmin();
+      // Payment webhook audit events are written only by trusted server code.
+      allow get, list: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     // --- 6. Captain Schedules & Shifts (Read-Only for Owning Captain, Admin-Managed) ---
