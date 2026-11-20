@@ -3366,7 +3366,8 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
     )
     val storePhone = safeString("storePhone", "restaurantPhone", "restaurant_phone", "store_phone", "vendorPhone")
     val storeImage = safeString(
-        "storeImage", "storePhotoUrl", "restaurantImage", "restaurant_image",
+        "storeImage", "merchantImageUrl", "merchantLogo", "profileImageUrl",
+        "logoUrl", "storePhotoUrl", "restaurantImage", "restaurant_image",
         "restaurantPhoto", "store_image", "imageUrl", "image", "photoUrl"
     )
     val pickup = safeString(
@@ -3399,7 +3400,10 @@ fun DocumentSnapshot.toOrderEntity(): OrderEntity? {
             ?: safeDouble("restaurantLongitude", "longitude", "lng", "pickup_lng").takeIf { it != 0.0 }
     }
 
-    val itemsSum = safeString("itemsSummary", "items_summary", "order_details", "details", "items", default = "طلب من المطعم")
+    val itemsSum = safeString(
+        "itemsSummary", "items_summary", "orderDetails", "order_details",
+        "description", "details", "items", default = "طلب توصيل جديد"
+    )
     val itemsCnt = safeLong("itemsCount", "items_count", "quantity", default = 1L).toInt()
 
     val totalAmt = safeDouble("price", "orderTotalAmount", "total", "total_price", "amount", default = 0.0)
