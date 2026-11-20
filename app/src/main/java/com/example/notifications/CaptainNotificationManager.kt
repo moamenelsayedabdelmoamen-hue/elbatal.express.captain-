@@ -160,7 +160,7 @@ object CaptainNotificationManager {
         merchantId: String = "",
         pickupAddress: String = "",
         deliveryAddress: String = "",
-        deliveryFee: Double = 25.0,
+        deliveryFee: Double = Double.NaN,
         orderCode: String = "",
         bypassDedupe: Boolean = false,
         orderId: Long = 0L,
@@ -169,6 +169,17 @@ object CaptainNotificationManager {
         startContinuousBell: Boolean = true
     ): Boolean {
         ensureNotificationChannels(context)
+        if (
+            storeName.isBlank() ||
+            storePhone.isBlank() ||
+            storeImage.isBlank() ||
+            merchantId.isBlank() ||
+            !deliveryFee.isFinite() ||
+            deliveryFee < 0.0
+        ) {
+            Log.e(TAG, "Refusing incoming offer: trusted merchant name, phone, logo, merchant UID and merchant-entered fee are required.")
+            return false
+        }
         if (!hasNotificationPermission(context)) {
             Log.w(TAG, "Skipping new-order notification: POST_NOTIFICATIONS permission not granted")
             return false
