@@ -487,10 +487,8 @@ fun IncomingOrderOfferCardContent(
             delay(1000)
             remainingSeconds--
         }
-        if (!isExpired) {
-            isExpired = true
-            onTimeout()
-        }
+        isExpired = true
+        onTimeout()
     }
 
     Card(
