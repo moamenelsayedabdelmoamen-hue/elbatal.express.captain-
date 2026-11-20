@@ -431,7 +431,9 @@ class CaptainSignupToLoginRoundTripTest {
         composeTestRule.onNodeWithTag("profile_vehicle_input").performScrollTo().assertTextContains("موتوسيكل هوجن 150")
         composeTestRule.onNodeWithTag("national_id_completion_banner")
             .performScrollTo()
-            .assertTextContains("مستند البطاقة الشخصية مكتمل")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("مستند البطاقة الشخصية مكتمل: تم رفع الوجه الأمامي والخلفي بنجاح ✓")
+            .assertIsDisplayed()
         assertEquals("License image path must remain persisted after relogin", expectedLicensePath, restoredAfterPhoneLogin.licenseImagePath)
 
         // 9. Switch to DashboardScreen and verify captain name renders from the same restored entity
