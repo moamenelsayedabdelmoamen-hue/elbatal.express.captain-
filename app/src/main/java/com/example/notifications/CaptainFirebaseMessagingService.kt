@@ -153,7 +153,7 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                         val pickup = data["pickupAddress"].orEmpty()
                         val delivery = data["deliveryAddress"].orEmpty()
                         val fee = data["deliveryFee"]?.toDoubleOrNull()
-                            ?.takeIf { it.isFinite() && it >= 0.0 }
+                            ?.takeIf { it.isFinite() && it > 0.0 }
                         if (merchantId.isBlank() || storeName.isBlank() || storePhone.isBlank() || storeImage.isBlank() || fee == null) {
                             Log.e(
                                 TAG,
