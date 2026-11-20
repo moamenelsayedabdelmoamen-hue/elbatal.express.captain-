@@ -47,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.OrderEntity
+import com.example.data.storage.FirebaseStorageRepository
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ExpressRed
@@ -87,6 +90,23 @@ fun IncomingOrderAlert(
     onAccept: () -> Unit,
     onTimeout: () -> Unit = {}
 ) {
+    val appContext = LocalContext.current.applicationContext
+    val merchantImageModel by produceState<Any?>(
+        initialValue = null,
+        key1 = order.storeImage
+    ) {
+        val imageReference = order.storeImage.trim()
+        value = if (imageReference.isBlank()) {
+            null
+        } else {
+            runCatching {
+                FirebaseStorageRepository.getInstance(appContext)
+                    .resolveDisplayModel(imageReference)
+                    .getOrNull()
+            }.getOrNull()
+        }
+    }
+
     val totalSeconds = 60
     val initialRemaining = remember(order.id, order.offerExpiresAt) {
         val now = System.currentTimeMillis()
@@ -335,9 +355,9 @@ fun IncomingOrderAlert(
                     ) {
                         // Merchant Info
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (order.storeImage.isNotBlank()) {
+                            if (merchantImageModel != null) {
                                 AsyncImage(
-                                    model = order.storeImage,
+                                    model = merchantImageModel,
                                     contentDescription = "شعار التاجر",
                                     modifier = Modifier
                                         .size(36.dp)
