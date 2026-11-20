@@ -173,6 +173,8 @@ class IncomingOrderActivity : ComponentActivity() {
         val orderKey = intent?.getStringExtra(EXTRA_ORDER_KEY).orEmpty()
         val orderId = intent?.getLongExtra(EXTRA_ORDER_ID, 0L) ?: 0L
         val storeName = intent?.getStringExtra(EXTRA_STORE_NAME).orEmpty().ifBlank { "مطعم مسجل" }
+        val storePhone = intent?.getStringExtra(EXTRA_STORE_PHONE).orEmpty()
+        val storeImage = intent?.getStringExtra(EXTRA_STORE_IMAGE).orEmpty()
         val pickup = intent?.getStringExtra(EXTRA_PICKUP_ADDRESS).orEmpty().ifBlank { "مقر التاجر" }
         val delivery = intent?.getStringExtra(EXTRA_DELIVERY_ADDRESS).orEmpty().ifBlank { "عنوان العميل" }
         val fee = intent?.getDoubleExtra(EXTRA_DELIVERY_FEE, 25.0) ?: 25.0
@@ -187,6 +189,8 @@ class IncomingOrderActivity : ComponentActivity() {
             customerName = "عميل البطل",
             customerPhone = "",
             storeName = storeName,
+            storePhone = storePhone,
+            storeImage = storeImage,
             pickupAddress = pickup,
             deliveryAddress = delivery,
             itemsSummary = "طلب توصيل جديد",
@@ -204,6 +208,8 @@ class IncomingOrderActivity : ComponentActivity() {
         const val EXTRA_ORDER_KEY = "extra_order_key"
         const val EXTRA_ORDER_ID = "extra_order_id"
         const val EXTRA_STORE_NAME = "extra_store_name"
+        const val EXTRA_STORE_PHONE = "extra_store_phone"
+        const val EXTRA_STORE_IMAGE = "extra_store_image"
         const val EXTRA_PICKUP_ADDRESS = "extra_pickup_address"
         const val EXTRA_DELIVERY_ADDRESS = "extra_delivery_address"
         const val EXTRA_DELIVERY_FEE = "extra_delivery_fee"
@@ -219,13 +225,17 @@ class IncomingOrderActivity : ComponentActivity() {
             deliveryAddress: String,
             deliveryFee: Double,
             orderCode: String,
-            offerExpiresAtMs: Long
+            offerExpiresAtMs: Long,
+            storePhone: String = "",
+            storeImage: String = ""
         ): Intent {
             return Intent(context, IncomingOrderActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_ORDER_KEY, orderKey)
                 putExtra(EXTRA_ORDER_ID, orderId)
                 putExtra(EXTRA_STORE_NAME, storeName)
+                putExtra(EXTRA_STORE_PHONE, storePhone)
+                putExtra(EXTRA_STORE_IMAGE, storeImage)
                 putExtra(EXTRA_PICKUP_ADDRESS, pickupAddress)
                 putExtra(EXTRA_DELIVERY_ADDRESS, deliveryAddress)
                 putExtra(EXTRA_DELIVERY_FEE, deliveryFee)
