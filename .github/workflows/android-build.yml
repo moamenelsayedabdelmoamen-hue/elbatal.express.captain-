@@ -37,6 +37,25 @@ jobs:
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
       - name: Run Captain unit tests
         run: gradle :app:testDebugUnitTest
+      - name: Print unit test failure details
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          reports = glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")
+          if not reports:
+              print("No JUnit XML reports were produced.")
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.findall(".//testcase"):
+                  failure = case.find("failure") or case.find("error")
+                  if failure is not None:
+                      print(f"FAILED: {case.get('classname')} > {case.get('name')}")
+                      print(failure.get("message", ""))
+                      print(failure.text or "")
+          PY
       - name: Build Captain debug APK
         run: gradle :app:assembleDebug
       - uses: actions/upload-artifact@v4
