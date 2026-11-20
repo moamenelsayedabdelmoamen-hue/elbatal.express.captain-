@@ -490,17 +490,29 @@ class SecurityAuditRuleTest {
         storageRepo.clearSessionMemoryCache()
         assertFalse("Logout clearSessionMemoryCache MUST wipe private ID/receipt cache from disk", cacheRoot.exists())
 
-        // Verify google-services.json targets el-batal-express-956ae
-        val googleServicesFile = listOf(
-            File("google-services.json"),
-            File("app/google-services.json"),
-            File("../app/google-services.json")
+        // Verify the Google Services Gradle plugin generated resources for the real
+        // Firebase project. The source google-services.json is intentionally not committed;
+        // CI/local builds may provide it through a private file or a protected secret.
+        val generatedGoogleServicesValues = listOf(
+            File("build/generated/res/google-services/debug/values/values.xml"),
+            File("app/build/generated/res/google-services/debug/values/values.xml"),
+            File("../app/build/generated/res/google-services/debug/values/values.xml")
         ).firstOrNull { it.exists() }
-        assertNotNull("google-services.json must exist", googleServicesFile)
-        val gsJson = JSONObject(googleServicesFile!!.readText())
-        val projectInfo = gsJson.getJSONObject("project_info")
-        assertEquals("el-batal-express-956ae", projectInfo.getString("project_id"))
-        assertEquals("el-batal-express-956ae.firebasestorage.app", projectInfo.getString("storage_bucket"))
+        assertNotNull(
+            "Google Services plugin must generate debug Firebase values from google-services.json",
+            generatedGoogleServicesValues
+        )
+        val generatedValuesXml = generatedGoogleServicesValues!!.readText()
+        assertTrue(
+            "Generated Firebase resources must target el-batal-express-956ae",
+            Regex("""<string name="project_id"[^>]*>el-batal-express-956ae</string>""")
+                .containsMatchIn(generatedValuesXml)
+        )
+        assertTrue(
+            "Generated Firebase resources must use the production Storage bucket",
+            Regex("""<string name="google_storage_bucket"[^>]*>el-batal-express-956ae.firebasestorage.app</string>""")
+                .containsMatchIn(generatedValuesXml)
+        )
 
         // Verify zero public downloadUrl calls in production Kotlin source files
         val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java")).first { it.exists() }
