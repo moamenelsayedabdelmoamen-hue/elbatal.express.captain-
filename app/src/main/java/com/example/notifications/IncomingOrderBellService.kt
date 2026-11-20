@@ -83,7 +83,7 @@ class IncomingOrderBellService : Service() {
                 val merchantId = intent.getStringExtra(EXTRA_MERCHANT_ID).orEmpty()
                 val pickupAddress = intent.getStringExtra(EXTRA_PICKUP_ADDRESS).orEmpty()
                 val deliveryAddress = intent.getStringExtra(EXTRA_DELIVERY_ADDRESS).orEmpty()
-                val deliveryFee = intent.getDoubleExtra(EXTRA_DELIVERY_FEE, 25.0)
+                val deliveryFee = intent.getDoubleExtra(EXTRA_DELIVERY_FEE, Double.NaN)
                 val orderCode = intent.getStringExtra(EXTRA_ORDER_CODE).orEmpty()
                 val distanceKm = intent.getDoubleExtra(EXTRA_DISTANCE_KM, 3.0)
                 val rawExpiresAt = intent.getLongExtra(EXTRA_OFFER_EXPIRES_AT_MS, 0L)
