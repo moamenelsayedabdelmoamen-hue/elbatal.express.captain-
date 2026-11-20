@@ -3,6 +3,7 @@ package com.example.notifications
 import android.util.Log
 import com.example.data.AppDatabase
 import com.example.data.ShiftManager
+import com.example.data.resolveMerchantImageReference
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -102,7 +103,10 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             customerPhone = data["customerPhone"].orEmpty(),
                             storeName = storeName,
                             storePhone = data["storePhone"].orEmpty(),
-                            storeImage = data["storeImage"].orEmpty(),
+                            storeImage = resolveMerchantImageReference(
+                                storeImage = data["storeImage"],
+                                storeImagePath = data["storeImagePath"]
+                            ),
                             pickupAddress = pickup.ifBlank { "مقر التاجر" },
                             deliveryAddress = delivery.ifBlank { "عنوان العميل" },
                             storeLocationUrl = data["storeLocationUrl"].orEmpty(),
