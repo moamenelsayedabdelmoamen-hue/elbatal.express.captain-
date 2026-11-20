@@ -88,7 +88,8 @@ import java.util.Locale
 fun IncomingOrderAlert(
     order: OrderEntity,
     onAccept: () -> Unit,
-    onTimeout: () -> Unit = {}
+    onTimeout: () -> Unit = {},
+    isAccepting: Boolean = false
 ) {
     val appContext = LocalContext.current.applicationContext
     val merchantImageModel by produceState<Any?>(
@@ -453,7 +454,7 @@ fun IncomingOrderAlert(
                             onAccept()
                         }
                     },
-                    enabled = !isExpired,
+                    enabled = !isExpired && !isAccepting,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -471,7 +472,11 @@ fun IncomingOrderAlert(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isExpired) "انتهت صلاحية العرض" else "قبول الطلب 🚀",
+                        text = when {
+                            isExpired -> "انتهت صلاحية العرض"
+                            isAccepting -> "جاري قبول الطلب..."
+                            else -> "قبول الطلب 🚀"
+                        },
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
                         color = Color.White
                     )
@@ -479,4 +484,25 @@ fun IncomingOrderAlert(
             }
         }
     }
+}
+
+
+/**
+ * Reusable full-screen offer entry point used by the lock-screen Activity.
+ * It shares the same offer countdown, merchant information and single accept action
+ * as the in-app dialog so the two entry points cannot drift apart.
+ */
+@Composable
+fun IncomingOrderOfferCardContent(
+    order: OrderEntity,
+    isAccepting: Boolean,
+    onAccept: () -> Unit,
+    onTimeout: () -> Unit
+) {
+    IncomingOrderAlert(
+        order = order,
+        onAccept = onAccept,
+        onTimeout = onTimeout,
+        isAccepting = isAccepting
+    )
 }
