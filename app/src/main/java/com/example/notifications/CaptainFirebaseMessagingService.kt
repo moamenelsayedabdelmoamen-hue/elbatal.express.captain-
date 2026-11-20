@@ -200,15 +200,9 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                     }
 
                     else -> {
-                        val notifTitle = remoteMessage.notification?.title ?: data["title"] ?: return@launch
-                        val notifBody = remoteMessage.notification?.body ?: data["body"] ?: ""
-                        CaptainNotificationManager.showNewOrderNotification(
-                            context = applicationContext,
-                            orderKey = remoteMessage.messageId ?: System.currentTimeMillis().toString(),
-                            storeName = notifTitle,
-                            pickupAddress = notifBody,
-                            deliveryFee = data["deliveryFee"]?.toDoubleOrNull() ?: 25.0
-                        )
+                        // Unknown FCM event types must never be displayed as delivery offers:
+                        // doing so could invent merchant identity or a delivery fee.
+                        Log.d(TAG, "Ignoring unsupported FCM event type: $type")
                     }
                 }
             } catch (e: Exception) {
