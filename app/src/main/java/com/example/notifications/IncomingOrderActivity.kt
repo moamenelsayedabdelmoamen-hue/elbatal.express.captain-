@@ -177,7 +177,7 @@ class IncomingOrderActivity : ComponentActivity() {
         val storeImage = intent?.getStringExtra(EXTRA_STORE_IMAGE).orEmpty()
         val pickup = intent?.getStringExtra(EXTRA_PICKUP_ADDRESS).orEmpty().ifBlank { "مقر التاجر" }
         val delivery = intent?.getStringExtra(EXTRA_DELIVERY_ADDRESS).orEmpty().ifBlank { "عنوان العميل" }
-        val fee = intent?.getDoubleExtra(EXTRA_DELIVERY_FEE, 25.0) ?: 25.0
+        val fee = intent?.getDoubleExtra(EXTRA_DELIVERY_FEE, 0.0) ?: 0.0
         val orderCode = intent?.getStringExtra(EXTRA_ORDER_CODE).orEmpty()
         val rawExpires = intent?.getLongExtra(EXTRA_OFFER_EXPIRES_AT_MS, 0L) ?: 0L
         val expiresAt = if (rawExpires > 0L) rawExpires else System.currentTimeMillis() + 60_000L
