@@ -78,6 +78,8 @@ class IncomingOrderBellService : Service() {
                 val orderKey = intent.getStringExtra(EXTRA_ORDER_KEY).orEmpty()
                 val orderId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
                 val storeName = intent.getStringExtra(EXTRA_STORE_NAME).orEmpty()
+                val storePhone = intent.getStringExtra(EXTRA_STORE_PHONE).orEmpty()
+                val storeImage = intent.getStringExtra(EXTRA_STORE_IMAGE).orEmpty()
                 val pickupAddress = intent.getStringExtra(EXTRA_PICKUP_ADDRESS).orEmpty()
                 val deliveryAddress = intent.getStringExtra(EXTRA_DELIVERY_ADDRESS).orEmpty()
                 val deliveryFee = intent.getDoubleExtra(EXTRA_DELIVERY_FEE, 25.0)
@@ -113,6 +115,8 @@ class IncomingOrderBellService : Service() {
                     orderKey = orderKey,
                     orderId = orderId,
                     storeName = storeName,
+                    storePhone = storePhone,
+                    storeImage = storeImage,
                     pickupAddress = pickupAddress,
                     deliveryAddress = deliveryAddress,
                     deliveryFee = deliveryFee,
@@ -171,6 +175,8 @@ class IncomingOrderBellService : Service() {
         orderKey: String,
         orderId: Long,
         storeName: String,
+        storePhone: String,
+        storeImage: String,
         pickupAddress: String,
         deliveryAddress: String,
         deliveryFee: Double,
@@ -187,7 +193,9 @@ class IncomingOrderBellService : Service() {
             deliveryAddress = deliveryAddress,
             deliveryFee = deliveryFee,
             orderCode = orderCode,
-            offerExpiresAtMs = expiresAtMs
+            offerExpiresAtMs = expiresAtMs,
+            storePhone = storePhone,
+            storeImage = storeImage
         )
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
@@ -558,6 +566,8 @@ class IncomingOrderBellService : Service() {
         const val EXTRA_ORDER_KEY = "extra_order_key"
         const val EXTRA_ORDER_ID = "extra_order_id"
         const val EXTRA_STORE_NAME = "extra_store_name"
+        const val EXTRA_STORE_PHONE = "extra_store_phone"
+        const val EXTRA_STORE_IMAGE = "extra_store_image"
         const val EXTRA_PICKUP_ADDRESS = "extra_pickup_address"
         const val EXTRA_DELIVERY_ADDRESS = "extra_delivery_address"
         const val EXTRA_DELIVERY_FEE = "extra_delivery_fee"
@@ -585,7 +595,9 @@ class IncomingOrderBellService : Service() {
             deliveryFee: Double,
             orderCode: String,
             offerExpiresAtMs: Long,
-            distanceKm: Double = 3.0
+            distanceKm: Double = 3.0,
+            storePhone: String = "",
+            storeImage: String = ""
         ) {
             val intent = Intent(context, IncomingOrderBellService::class.java).apply {
                 action = ACTION_START_BELL
@@ -593,6 +605,8 @@ class IncomingOrderBellService : Service() {
                 putExtra(EXTRA_ORDER_KEY, orderKey)
                 putExtra(EXTRA_ORDER_ID, orderId)
                 putExtra(EXTRA_STORE_NAME, storeName)
+                putExtra(EXTRA_STORE_PHONE, storePhone)
+                putExtra(EXTRA_STORE_IMAGE, storeImage)
                 putExtra(EXTRA_PICKUP_ADDRESS, pickupAddress)
                 putExtra(EXTRA_DELIVERY_ADDRESS, deliveryAddress)
                 putExtra(EXTRA_DELIVERY_FEE, deliveryFee)
