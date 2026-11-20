@@ -1509,21 +1509,14 @@ class CaptainRepository(
             Log.w("CaptainRepository", "[PhoneLookup] Cloud Function lookup notice: ${e.message}")
         }
 
-        // 4. Query strictly 'captains' collection where accountType == 'captain'
-        val numericVariants = listOfNotNull(
-            plainDigits.toLongOrNull(),
-            plainDigits.removePrefix("0").toLongOrNull(),
-            plainDigits.removePrefix("20").toLongOrNull()
-        ).distinct()
-
-        val foundEmail = runCatching {
-            authBackend.queryCaptainEmailByPhoneVariants(variantsList, numericVariants, normalizedLocal)
-        }.getOrNull()
-
-        if (!foundEmail.isNullOrBlank()) {
-            PhoneAuthRegistry.savePhoneEmailMapping(context, normalizedLocal, foundEmail)
-        }
-        return foundEmail
+        // The captain collection is intentionally not readable before authentication.
+        // All new phone-to-email resolution must go through the rate-limited Dashboard
+        // callable; never fall back to a client-side Firestore query that rules must deny.
+        Log.w(
+            "CaptainRepository",
+            "[PhoneLookup] No server result; direct Firestore fallback is intentionally disabled."
+        )
+        return null
     }
 
     /**
