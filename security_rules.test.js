@@ -290,8 +290,8 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
   });
 
   test('2. Two Captains isolation: each accesses own ID cards & profile, CANNOT read or overwrite another captain ID card', async () => {
-    const cap1Ctx = testEnv.authenticatedContext('captain_1');
-    const cap2Ctx = testEnv.authenticatedContext('captain_2');
+    const cap1Ctx = testEnv.authenticatedContext('captain_1', {email_verified: true});
+    const cap2Ctx = testEnv.authenticatedContext('captain_2', {email_verified: true});
 
     const cap1Storage = cap1Ctx.storage(BUCKET_URL);
     const cap2Storage = cap2Ctx.storage(BUCKET_URL);
@@ -330,8 +330,8 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
   });
 
   test('3. Order receipt uploads enforce EXPLICIT status allowlist and reject closed, unknown, or other-captain orders', async () => {
-    const cap1Storage = testEnv.authenticatedContext('captain_1').storage(BUCKET_URL);
-    const cap2Storage = testEnv.authenticatedContext('captain_2').storage(BUCKET_URL);
+    const cap1Storage = testEnv.authenticatedContext('captain_1', {email_verified: true}).storage(BUCKET_URL);
+    const cap2Storage = testEnv.authenticatedContext('captain_2', {email_verified: true}).storage(BUCKET_URL);
 
     // ALLOWED: status == 'picked_up' and assigned to captain_1 with matching metadata
     await assertSucceeds(
@@ -398,10 +398,10 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
   });
 
   test('4. Merchant permissions: reads ONLY own order receipt, ZERO access to Captain ID cards, scoped Captain profile photo', async () => {
-    const merch1Storage = testEnv.authenticatedContext('merchant_1').storage(BUCKET_URL);
-    const merch2Storage = testEnv.authenticatedContext('merchant_2').storage(BUCKET_URL);
-    const merch1Db = testEnv.authenticatedContext('merchant_1').firestore();
-    const merch2Db = testEnv.authenticatedContext('merchant_2').firestore();
+    const merch1Storage = testEnv.authenticatedContext('merchant_1', {email_verified: true}).storage(BUCKET_URL);
+    const merch2Storage = testEnv.authenticatedContext('merchant_2', {email_verified: true}).storage(BUCKET_URL);
+    const merch1Db = testEnv.authenticatedContext('merchant_1', {email_verified: true}).firestore();
+    const merch2Db = testEnv.authenticatedContext('merchant_2', {email_verified: true}).firestore();
 
     // Merchant 1 CAN read receipt of order_picked_up_c1 (merchantId == 'merchant_1')
     await assertSucceeds(getBytes(ref(merch1Storage, 'orders/order_picked_up_c1/receipts/receipt_c1.jpg')));
@@ -434,9 +434,9 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
   });
 
   test('5. Firestore financial, subscription, restaurant, and order write protections', async () => {
-    const cap1Db = testEnv.authenticatedContext('captain_1').firestore();
+    const cap1Db = testEnv.authenticatedContext('captain_1', {email_verified: true}).firestore();
     const user1Db = testEnv.authenticatedContext('user_1').firestore();
-    const merch1Db = testEnv.authenticatedContext('merchant_1').firestore();
+    const merch1Db = testEnv.authenticatedContext('merchant_1', {email_verified: true}).firestore();
 
     // Captain 1 CAN update safe operational/presence/image-path fields on own doc
     await assertSucceeds(
@@ -480,7 +480,7 @@ describe('El-Batal Express Real Firebase Emulator Security Audit (Firestore + St
     assert.equal(pendingSnap.size, 1);
 
     // The offer is private to captain_1 even though captain_2 appears in the candidate history.
-    const cap2Db = testEnv.authenticatedContext('captain_2').firestore();
+    const cap2Db = testEnv.authenticatedContext('captain_2', {email_verified: true}).firestore();
     await assertFails(getDoc(doc(cap2Db, 'orders', 'order_pending_open')));
 
     const ownOrdersSnap = await assertSucceeds(
