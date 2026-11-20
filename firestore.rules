@@ -37,12 +37,16 @@ service cloud.firestore {
     }
 
     function isCaptainAccount() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/captains/$(request.auth.uid));
+      return isSignedIn()
+        && 'email_verified' in request.auth.token
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/captains/$(request.auth.uid));
     }
 
     function isMerchantAccount() {
       return isSignedIn()
+        && 'email_verified' in request.auth.token
+        && request.auth.token.email_verified == true
         && exists(/databases/$(database)/documents/merchants/$(request.auth.uid))
         && get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.accountType == 'merchant';
     }
