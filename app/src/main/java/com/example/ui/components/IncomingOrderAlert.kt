@@ -456,3 +456,120 @@ fun IncomingOrderAlert(
         }
     }
 }
+
+/**
+ * Reusable full-screen incoming-offer content used by IncomingOrderActivity.
+ * The dialog-based IncomingOrderAlert remains available for in-app presentation.
+ */
+@Composable
+fun IncomingOrderOfferCardContent(
+    order: OrderEntity,
+    isAccepting: Boolean,
+    onAccept: () -> Unit,
+    onTimeout: () -> Unit
+) {
+    val totalSeconds = 60
+    val initialRemaining = remember(order.firestoreDocId, order.offerExpiresAt) {
+        val now = System.currentTimeMillis()
+        if (order.offerExpiresAt > now) {
+            (((order.offerExpiresAt - now) + 999L) / 1000L).toInt().coerceIn(1, totalSeconds)
+        } else if (order.offerExpiresAt == 0L) totalSeconds else 0
+    }
+    var remainingSeconds by remember(order.firestoreDocId, order.offerExpiresAt) {
+        mutableIntStateOf(initialRemaining)
+    }
+    var isExpired by remember(order.firestoreDocId, order.offerExpiresAt) {
+        mutableStateOf(initialRemaining <= 0)
+    }
+
+    LaunchedEffect(order.firestoreDocId, order.offerExpiresAt) {
+        while (remainingSeconds > 0) {
+            delay(1000)
+            remainingSeconds--
+        }
+        if (!isExpired) {
+            isExpired = true
+            onTimeout()
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = if (isExpired) "انتهت مهلة العرض" else "طلب توصيل جديد",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
+                color = if (isExpired) Color.LightGray else ExpressRed
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = String.format(Locale.US, "%02d:%02d", remainingSeconds / 60, remainingSeconds % 60),
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                color = if (remainingSeconds <= 10 || isExpired) ExpressRed else HeroYellow
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                if (order.storeImage.isNotBlank()) {
+                    AsyncImage(
+                        model = order.storeImage,
+                        contentDescription = "شعار التاجر",
+                        modifier = Modifier.size(56.dp).clip(CircleShape)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Restaurant,
+                        contentDescription = null,
+                        tint = HeroYellow,
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("التاجر: ${order.storeName}", color = Color.White, fontWeight = FontWeight.Bold)
+                    if (order.storePhone.isNotBlank()) {
+                        Text("الهاتف: ${order.storePhone}", color = HeroYellow, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("موقع الاستلام: ${order.pickupAddress}", color = Color.White, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("عنوان التسليم: ${order.deliveryAddress}", color = Color.White, modifier = Modifier.fillMaxWidth())
+            if (order.customerName.isNotBlank()) {
+                Text("العميل: ${order.customerName}", color = Color.LightGray, modifier = Modifier.fillMaxWidth())
+            }
+            if (order.itemsSummary.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("تفاصيل الطلب: ${order.itemsSummary}", color = HeroYellow, modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text("أجرة التوصيل: ${order.deliveryFee.toInt()} ج.م", color = StatusOnlineGreen, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(18.dp))
+            Button(
+                onClick = onAccept,
+                enabled = !isExpired && !isAccepting,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ExpressRed),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    text = when {
+                        isExpired -> "انتهت صلاحية العرض"
+                        isAccepting -> "جارٍ قبول الطلب..."
+                        else -> "قبول الطلب"
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
