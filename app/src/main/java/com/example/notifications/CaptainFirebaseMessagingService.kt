@@ -76,6 +76,7 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             ?: remoteMessage.messageId
                             ?: System.currentTimeMillis().toString()
                         val storeName = data["storeName"]
+                            ?: data["merchantName"]
                             ?: remoteMessage.notification?.title
                             ?: "مطعم مسجل"
                         val pickup = data["pickupAddress"].orEmpty()
@@ -101,8 +102,11 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             customerName = data["customerName"].orEmpty().ifBlank { "عميل البطل" },
                             customerPhone = data["customerPhone"].orEmpty(),
                             storeName = storeName,
-                            storePhone = data["storePhone"].orEmpty(),
-                            storeImage = data["storeImage"].orEmpty(),
+                            storePhone = data["storePhone"] ?: data["merchantPhone"].orEmpty(),
+                            storeImage = data["storeImage"]
+                                ?: data["merchantLogoUrl"]
+                                ?: data["merchantLogo"]
+                                ?: "",
                             pickupAddress = pickup.ifBlank { "مقر التاجر" },
                             deliveryAddress = delivery.ifBlank { "عنوان العميل" },
                             storeLocationUrl = data["storeLocationUrl"].orEmpty(),
