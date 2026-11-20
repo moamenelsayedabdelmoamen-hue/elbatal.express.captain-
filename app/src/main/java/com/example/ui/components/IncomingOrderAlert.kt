@@ -99,11 +99,15 @@ fun IncomingOrderAlert(
         value = if (imageReference.isBlank()) {
             null
         } else {
-            runCatching {
+            try {
                 FirebaseStorageRepository.getInstance(appContext)
                     .resolveDisplayModel(imageReference)
                     .getOrNull()
-            }.getOrNull()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
