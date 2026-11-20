@@ -116,7 +116,7 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                         val delivery = data["deliveryAddress"].orEmpty()
                         val fee = data["deliveryFee"]?.toDoubleOrNull()
                             ?.takeIf { it.isFinite() && it >= 0.0 }
-                        if (storeName.isBlank() || storePhone.isBlank() || storeImage.isBlank() || fee == null) {
+                        if (merchantId.isBlank() || storeName.isBlank() || storePhone.isBlank() || storeImage.isBlank() || fee == null) {
                             Log.e(
                                 TAG,
                                 "Offer omitted: trusted merchant name, phone, image, or merchant-entered delivery fee is missing (order=$orderKey)"
