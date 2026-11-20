@@ -625,15 +625,46 @@ class FirebaseStorageRepository(
 
     private fun resolveMimeType(context: Context, uri: Uri): String {
         val resolverType = context.contentResolver.getType(uri)?.lowercase()?.trim()
-        if (!resolverType.isNullOrBlank()) return resolverType
+        if (resolverType in ALLOWED_IMAGE_MIME_TYPES) return resolverType!!
 
         val path = uri.path.orEmpty()
         val ext = path.substringAfterLast('.', "").lowercase()
-        return when (ext) {
+        val extensionType = when (ext) {
             "jpg", "jpeg" -> "image/jpeg"
             "png" -> "image/png"
             "webp" -> "image/webp"
-            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.lowercase() ?: "application/octet-stream"
+            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.lowercase()
+        }
+        if (extensionType in ALLOWED_IMAGE_MIME_TYPES) return extensionType!!
+
+        // Android Photo Picker and document providers often expose valid images without a MIME
+        // type or file extension. Inspect the actual file signature rather than trusting its name.
+        val signature = runCatching {
+            ImageCompressor.openUriInputStream(context, uri)?.use { input ->
+                val header = ByteArray(12)
+                var offset = 0
+                while (offset < header.size) {
+                    val count = input.read(header, offset, header.size - offset)
+                    if (count <= 0) break
+                    offset += count
+                }
+                header.copyOf(offset)
+            }
+        }.getOrNull() ?: ByteArray(0)
+
+        return when {
+            signature.size >= 3 &&
+                signature[0] == 0xFF.toByte() &&
+                signature[1] == 0xD8.toByte() &&
+                signature[2] == 0xFF.toByte() -> "image/jpeg"
+            signature.size >= 8 &&
+                signature.copyOfRange(0, 8).contentEquals(
+                    byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+                ) -> "image/png"
+            signature.size >= 12 &&
+                signature.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+                signature.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WEBP" -> "image/webp"
+            else -> "application/octet-stream"
         }
     }
 
