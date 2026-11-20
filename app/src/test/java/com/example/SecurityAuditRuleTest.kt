@@ -425,7 +425,6 @@ class SecurityAuditRuleTest {
     // 2. Explicit receipt status allowlist & private cache wipe & project config audit
     // -------------------------------------------------------------------------
     @Test
-    @Test
     fun storageAudit_enforcesExplicitStatusAllowlist_wipesPrivateCacheOnLogout_andTargetsCorrectProject() = runBlocking {
         val gateway = object : StorageGateway {
             override suspend fun putBytesWithProgress(
@@ -501,16 +500,15 @@ class SecurityAuditRuleTest {
             cacheRoot.exists()
         )
 
-        // Confirm that Gradle generated the expected Firebase resources from the
-        // validated google-services.json. Robolectric exposes resources under the app
-        // package/namespace depending on the merged test resource table.
+        // Validate the real Firebase configuration and the Google Services resources
+        // generated from it by the dedicated Gradle task in CI.
         val googleServicesFile = listOf(
             File("app/google-services.json"),
             File("google-services.json"),
             File("../app/google-services.json")
         ).firstOrNull { it.isFile }
         assertNotNull(
-            "CI/local Android build must supply the validated app/google-services.json",
+            "Android build must provide a validated google-services.json",
             googleServicesFile
         )
         val projectIdResource = context.resources.getIdentifier(
@@ -531,118 +529,8 @@ class SecurityAuditRuleTest {
             context.getString(storageBucketResource)
         )
 
-        val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java")).first { it.exists() }
-        val filesCallingDownloadUrl = mainSrcDir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .filter { file ->
-                file.readLines().any { line ->
-                    val trimmed = line.trim()
-                    !trimmed.startsWith("//") && !trimmed.startsWith("*") &&
-                        (trimmed.contains(".downloadUrl") || trimmed.contains("getDownloadUrl("))
-                }
-            }
-            .map { it.name }
-            .toList()
-        assertTrue(
-            "Production source MUST NOT generate public downloadUrl links for private Storage objects: $filesCallingDownloadUrl",
-            filesCallingDownloadUrl.isEmpty()
-        )
-    }
-
-            override suspend fun getBytes(storagePath: String, maxDownloadBytes: Long, requesterUid: String): ByteArray {
-                return ByteArray(32) { 7 }
-            }
-        }
-
-        val storageRepo = FirebaseStorageRepository(
-            context = context,
-            gateway = gateway,
-            authUidProvider = AuthUidProvider { "captain_1" },
-            connectivityChecker = NetworkConnectivityChecker { true }
-        )
-        val uri = createSampleJpeg("audit_img")
-
-        // Disallowed receipt statuses (early, en_route, closed) MUST all be rejected
-        val disallowedStatuses = listOf(
-            OrderStatus.PENDING,
-            OrderStatus.ACCEPTED,
-            OrderStatus.AT_STORE,
-            OrderStatus.EN_ROUTE,
-            OrderStatus.DELIVERED,
-            OrderStatus.CANCELLED,
-            OrderStatus.EXPIRED
-        )
-        for (badStatus in disallowedStatuses) {
-            val res = storageRepo.uploadOrderReceiptImage(
-                orderId = "ORD_1",
-                assignedCaptainId = "captain_1",
-                orderStatus = badStatus,
-                imageUri = uri
-            )
-            assertTrue("Status $badStatus MUST be blocked from receipt upload", res.isFailure)
-            assertEquals(UploadErrorKind.ORDER_CLOSED, (res.exceptionOrNull() as? StorageUploadException)?.kind)
-        }
-
-        // Allowed receipt statuses MUST succeed
-        for (goodStatus in listOf(OrderStatus.PICKED_UP, OrderStatus.MERCHANT_REJECTED, OrderStatus.AWAITING_MERCHANT_CONFIRMATION)) {
-            val res = storageRepo.uploadOrderReceiptImage(
-                orderId = "ORD_1",
-                assignedCaptainId = "captain_1",
-                orderStatus = goodStatus,
-                imageUri = uri
-            )
-            assertTrue("Explicitly allowed status $goodStatus must succeed", res.isSuccess)
-        }
-
-        // Upload ID front to populate UID-scoped private cache, then verify clearSessionMemoryCache wipes disk cache
-        assertTrue(storageRepo.uploadCaptainIdFrontImage("captain_1", uri).isSuccess)
-        val cacheRoot = File(context.cacheDir, "fb_storage_cache")
-        assertTrue("Private cache folder should exist while session is active", cacheRoot.exists() && cacheRoot.walkTopDown().any { it.isFile })
-        storageRepo.clearSessionMemoryCache()
-        assertFalse("Logout clearSessionMemoryCache MUST wipe private ID/receipt cache from disk", cacheRoot.exists())
-
-        // Verify Firebase project metadata when a local/private google-services.json is
-        // supplied. The file is intentionally absent from the repository/CI environment,
-        // so the metadata check is conditional there; CI still validates app compilation.
-        val localGoogleServicesFile = listOf(
-            File("google-services.json"),
-            File("app/google-services.json"),
-            File("../app/google-services.json")
-        ).firstOrNull { it.exists() }
-        // Android resource package follows the Gradle namespace (com.example), while
-        // Context.packageName is the distinct installable applicationId.
-        val projectIdResource = context.resources.getIdentifier(
-            "project_id", "string", "com.example"
-        )
-        val storageBucketResource = context.resources.getIdentifier(
-            "google_storage_bucket", "string", "com.example"
-        )
-        if (localGoogleServicesFile != null || projectIdResource != 0 || storageBucketResource != 0) {
-            assertTrue(
-                "When Firebase config is supplied, project_id must be generated",
-                projectIdResource != 0
-            )
-            assertTrue(
-                "When Firebase config is supplied, google_storage_bucket must be generated",
-                storageBucketResource != 0
-            )
-            assertEquals("el-batal-express-956ae", context.getString(projectIdResource))
-            assertEquals(
-                "el-batal-express-956ae.firebasestorage.app",
-                context.getString(storageBucketResource)
-            )
-        } else {
-            // CI deliberately compiles without the private/local Firebase configuration.
-            // A production installable APK must be built in an environment that supplies
-            // the matching google-services.json before release.
-            assertEquals(
-                "com.aistudio.elbatalexpresscaptain.captain",
-                context.packageName
-            )
-        }
-
-        // Verify zero public downloadUrl calls in production Kotlin source files
-        val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java")).first { it.exists() }
+        val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java"))
+            .first { it.exists() }
         val filesCallingDownloadUrl = mainSrcDir.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filter { file ->
