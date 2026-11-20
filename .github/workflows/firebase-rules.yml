@@ -1,0 +1,31 @@
+name: Captain Firebase Rules Security Tests
+
+on:
+  pull_request:
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - "firebase.json"
+      - "security_rules.test.js"
+      - ".github/workflows/firebase-rules.yml"
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - "firebase.json"
+      - "security_rules.test.js"
+      - ".github/workflows/firebase-rules.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix .ci-deps @firebase/rules-unit-testing firebase
+      - run: npm install --global firebase-tools
+      - run: firebase emulators:exec --only firestore,storage --project demo-elbatal "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules node --test security_rules.test.js"
