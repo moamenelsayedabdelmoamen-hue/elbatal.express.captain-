@@ -85,7 +85,8 @@ import java.util.Locale
 fun IncomingOrderAlert(
     order: OrderEntity,
     onAccept: () -> Unit,
-    onTimeout: () -> Unit = {}
+    onTimeout: () -> Unit = {},
+    isAccepting: Boolean = false
 ) {
     val totalSeconds = 60
     val initialRemaining = remember(order.id, order.offerExpiresAt) {
@@ -429,7 +430,7 @@ fun IncomingOrderAlert(
                             onAccept()
                         }
                     },
-                    enabled = !isExpired,
+                    enabled = !isExpired && !isAccepting,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -447,7 +448,11 @@ fun IncomingOrderAlert(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isExpired) "انتهت صلاحية العرض" else "قبول الطلب 🚀",
+                        text = when {
+                            isExpired -> "انتهت صلاحية العرض"
+                            isAccepting -> "جارٍ قبول الطلب..."
+                            else -> "قبول الطلب 🚀"
+                        },
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
                         color = Color.White
                     )
@@ -455,4 +460,24 @@ fun IncomingOrderAlert(
             }
         }
     }
+}
+
+
+/**
+ * Content entry point used by the full-screen incoming-order activity.
+ * Reuses the same offer UI and server-expiry countdown as the in-app alert.
+ */
+@Composable
+fun IncomingOrderOfferCardContent(
+    order: OrderEntity,
+    isAccepting: Boolean,
+    onAccept: () -> Unit,
+    onTimeout: () -> Unit
+) {
+    IncomingOrderAlert(
+        order = order,
+        onAccept = onAccept,
+        onTimeout = onTimeout,
+        isAccepting = isAccepting
+    )
 }
