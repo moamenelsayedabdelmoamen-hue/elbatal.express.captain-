@@ -132,6 +132,8 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
                             deliveryFee = fee,
                             orderCode = orderCode,
                             orderId = savedOrderId,
+                            storePhone = pushedOrder.storePhone,
+                            storeImage = pushedOrder.storeImage,
                             offerExpiresAtMs = effectiveExpiresAt,
                             distanceKm = distanceKm,
                             startContinuousBell = true
