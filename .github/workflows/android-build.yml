@@ -78,7 +78,7 @@ jobs:
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
       - name: Run Captain unit tests
-        run: gradle :app:testDebugUnitTest
+        run: gradle :app:processDebugGoogleServices :app:testDebugUnitTest
       - name: Print unit test failure details
         if: failure()
         shell: bash
