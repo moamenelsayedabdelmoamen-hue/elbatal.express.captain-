@@ -31,40 +31,55 @@ class CaptainFirebaseMessagingService : FirebaseMessagingService() {
         merchantId: String
     ): String {
         val url = rawUrl.trim()
-        if (url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)) {
-            return url
+        val path = rawPath.trim()
+        if (merchantId.isBlank()) return ""
+
+        // A Storage path from an order is accepted only when it is inside the
+        // exact merchant folder that owns this order.
+        val merchantPrefix = "merchants/$merchantId/"
+        val bucketRelativePath = if (path.startsWith("gs://", ignoreCase = true)) {
+            path.replaceFirst(Regex("^gs://[^/]+/"), "")
+        } else {
+            path
+        }
+        val scopedPath = bucketRelativePath.startsWith(merchantPrefix)
+
+        if (scopedPath) {
+            val cachedImage = runCatching {
+                val storage = FirebaseStorage.getInstance()
+                val reference = if (path.startsWith("gs://", ignoreCase = true)) {
+                    storage.getReferenceFromUrl(path)
+                } else {
+                    storage.reference.child(path)
+                }
+
+                val imageBytes = reference.getBytes(MAX_MERCHANT_IMAGE_BYTES).await()
+                if (imageBytes.isEmpty()) return@runCatching ""
+
+                val imageDirectory = File(applicationContext.filesDir, MERCHANT_IMAGE_CACHE_DIR)
+                if (!imageDirectory.exists() && !imageDirectory.mkdirs()) {
+                    throw IllegalStateException("Could not create private merchant image cache")
+                }
+                val safeName = merchantId.hashCode().toUInt().toString(16)
+                val imageFile = File(imageDirectory, "$safeName.webp")
+                FileOutputStream(imageFile).use { output ->
+                    output.write(imageBytes)
+                    output.flush()
+                }
+                Uri.fromFile(imageFile).toString()
+            }.onFailure { error ->
+                Log.w(TAG, "Could not securely download merchant profile image from Firebase Storage", error)
+            }.getOrDefault("")
+
+            if (cachedImage.isNotBlank()) return cachedImage
         }
 
-        val path = rawPath.trim().ifBlank { url }
-        if (path.isBlank() || merchantId.isBlank()) return ""
-
-        return runCatching {
-            val storage = FirebaseStorage.getInstance()
-            val reference = if (path.startsWith("gs://", ignoreCase = true)) {
-                storage.getReferenceFromUrl(path)
-            } else if (path.startsWith("merchants/")) {
-                storage.reference.child(path)
-            } else {
-                return@runCatching ""
-            }
-
-            val imageBytes = reference.getBytes(MAX_MERCHANT_IMAGE_BYTES).await()
-            if (imageBytes.isEmpty()) return@runCatching ""
-
-            val imageDirectory = File(applicationContext.filesDir, MERCHANT_IMAGE_CACHE_DIR)
-            if (!imageDirectory.exists() && !imageDirectory.mkdirs()) {
-                throw IllegalStateException("Could not create private merchant image cache")
-            }
-            val safeName = merchantId.hashCode().toUInt().toString(16)
-            val imageFile = File(imageDirectory, "$safeName.webp")
-            FileOutputStream(imageFile).use { output ->
-                output.write(imageBytes)
-                output.flush()
-            }
-            Uri.fromFile(imageFile).toString()
-        }.onFailure { error ->
-            Log.w(TAG, "Could not securely download merchant profile image from Firebase Storage", error)
-        }.getOrDefault("")
+        // Legacy HTTPS URLs are used only when no valid, merchant-scoped Storage path
+        // could be resolved. New uploads store both fields, so the private path wins.
+        return url.takeIf {
+            it.startsWith("https://", ignoreCase = true) ||
+                it.startsWith("http://", ignoreCase = true)
+        }.orEmpty()
     }
 
     override fun onNewToken(token: String) {
