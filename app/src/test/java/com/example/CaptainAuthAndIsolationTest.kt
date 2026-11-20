@@ -634,13 +634,17 @@ class CaptainAuthAndIsolationTest {
     // UI Verification: SignUpScreen (with address) & EmailVerificationScreen
     // -------------------------------------------------------------------------
     @Test
-    fun uiScreens_signUpPassesEmail_andEmailVerificationHandlesCheckAndResend() {
+    fun uiScreens_signUpPassesCaptainIdentity_andEmailVerificationHandlesCheckAndResend() {
+        var submittedName = ""
+        var submittedPhone = ""
         var submittedEmail = ""
 
         composeTestRule.setContent {
             ElBatalTheme {
                 SignUpScreen(
-                    onSignUpClick = { _, _, email, _, _, _, _, _, _, _, _, _ ->
+                    onSignUpClick = { name, phone, email, _, _, _, _, _, _, _, _, _ ->
+                        submittedName = name
+                        submittedPhone = phone
                         submittedEmail = email
                     },
                     onNavigateLogin = {}
@@ -649,7 +653,7 @@ class CaptainAuthAndIsolationTest {
         }
         composeTestRule.waitForIdle()
 
-        // Fill the current signup fields: name, phone, email, password and confirmation
+        // Fill the current signup fields (identity, email and password).
         composeTestRule.onNodeWithText("مثال: أحمد محمد علي").performScrollTo().performTextInput("كابتن كريم")
         composeTestRule.onNodeWithText("مثال: 01099887766").performScrollTo().performTextInput("01012345678")
         composeTestRule.onNodeWithText("مثال: captain@example.com").performScrollTo().performTextInput("karim@elbatal.com")
@@ -659,6 +663,8 @@ class CaptainAuthAndIsolationTest {
         composeTestRule.onNodeWithTag("signup_submit_button").performScrollTo().performClick()
         composeTestRule.waitForIdle()
 
+        assertEquals("كابتن كريم", submittedName)
+        assertEquals("01012345678", submittedPhone)
         assertEquals("karim@elbatal.com", submittedEmail)
     }
 
