@@ -261,7 +261,29 @@ class CaptainSignupToLoginRoundTripTest {
                 override suspend fun callFunction(
                     functionName: String,
                     payload: Map<String, Any?>
-                ): Map<String, Any?> = mapOf("success" to true, "earnedAmount" to 25.0)
+                ): Map<String, Any?> {
+                    return when (functionName) {
+                        // Model the rate-limited pre-login Dashboard callable.
+                        // The real app must never query the captains collection directly before auth.
+                        "resolveCaptainEmailByPhone" -> {
+                            val phone = payload["phone"]?.toString().orEmpty()
+                            val variants = (payload["variants"] as? List<*>)?.map { it?.toString().orEmpty() }.orEmpty()
+                            val match = backend.captains.values.firstOrNull { captain ->
+                                val accountType = captain["accountType"]?.toString()?.lowercase().orEmpty()
+                                val phoneFields = listOf(
+                                    captain["phone"]?.toString().orEmpty(),
+                                    captain["phoneNumber"]?.toString().orEmpty()
+                                )
+                                accountType == "captain" && phoneFields.any { it == phone || it in variants }
+                            }
+                            mapOf(
+                                "found" to (match != null),
+                                "email" to match?.get("email")?.toString().orEmpty()
+                            )
+                        }
+                        else -> mapOf("success" to true, "earnedAmount" to 25.0)
+                    }
+                }
             },
             authUidProvider = { backend.currentUid ?: "anon" }
         )
