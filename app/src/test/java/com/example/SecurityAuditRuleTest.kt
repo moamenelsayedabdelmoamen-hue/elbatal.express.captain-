@@ -498,11 +498,13 @@ class SecurityAuditRuleTest {
             File("app/google-services.json"),
             File("../app/google-services.json")
         ).firstOrNull { it.exists() }
+        // Android resource package follows the Gradle namespace (com.example), while
+        // Context.packageName is the distinct installable applicationId.
         val projectIdResource = context.resources.getIdentifier(
-            "project_id", "string", context.packageName
+            "project_id", "string", "com.example"
         )
         val storageBucketResource = context.resources.getIdentifier(
-            "google_storage_bucket", "string", context.packageName
+            "google_storage_bucket", "string", "com.example"
         )
         if (localGoogleServicesFile != null || projectIdResource != 0 || storageBucketResource != 0) {
             assertTrue(
