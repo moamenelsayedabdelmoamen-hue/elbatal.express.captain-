@@ -397,32 +397,10 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(orderId) && canReadOrder(existing());
       allow list: if isSignedIn() && canReadOrder(existing());
 
-      // Merchant clients may create only a pending order for their own approved, verified account.
-      allow create: if isAdmin() || (
-        isMerchantAccount()
-        && request.auth.token.email_verified == true
-        && incoming().merchantId == request.auth.uid
-        && incoming().captainId == null
-        && incoming().dispatchStatus == 'searching'
-        && incoming().status == 'pending'
-        && get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.status in ['approved', 'active']
-      );
-
-      // All captain order lifecycle mutations must execute via Cloud Functions (Admin SDK).
-      // Merchants may only update non-dispatch/non-captain fields on their own orders.
-      allow update: if isAdmin() || (
-        isOrderOwnedByMerchant(existing())
-        && incoming().merchantId == existing().merchantId
-        && incoming().userId == existing().userId
-        && incoming().orderCode == existing().orderCode
-        && incoming().captainId == existing().captainId
-        && !incoming().diff(existing()).affectedKeys().hasAny([
-          'captainId', 'captainUid', 'driverId', 'assignedCaptainId',
-          'offeredCaptainId', 'eligibleCaptainIds', 'excludedCaptainIds',
-          'timedOutCaptainIds', 'dispatchStatus', 'assignedAt', 'acceptedAt',
-          'deliveredAt', 'completedAt', 'captainEarning', 'platformCommission'
-        ])
-      );
+      // Every order write (creation, offer assignment, status transition, confirmation,
+      // cancellation and settlement) is performed by the authoritative Cloud Functions.
+      allow create: if isAdmin();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -441,9 +419,11 @@ service cloud.firestore {
     }
 
     match /order_codes/{code} {
-      allow get, list: if isSignedIn();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      // Order codes are exposed only to administrators or the merchant who owns the code.
+      allow get, list: if isAdmin() || (
+        isMerchantAccount() && existing().merchantId == request.auth.uid
+      );
+      allow create, update, delete: if isAdmin();
     }
 
     match /idempotency_keys/{keyId} {
@@ -452,8 +432,7 @@ service cloud.firestore {
         existing().merchantId == request.auth.uid
       ));
       allow list: if isAdmin();
-      allow create: if isAdmin() || (isMerchantAccount() && incoming().merchantId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /settings/{settingId} {
