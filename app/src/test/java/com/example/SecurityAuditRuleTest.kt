@@ -531,6 +531,20 @@ class SecurityAuditRuleTest {
 
         val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java"))
             .first { it.exists() }
+        val captainRepositoryFile = File(
+            mainSrcDir,
+            "com/example/data/CaptainRepository.kt"
+        )
+        assertTrue("CaptainRepository must exist in the Android source set", captainRepositoryFile.isFile)
+        val captainRepositorySource = captainRepositoryFile.readText()
+        assertTrue(
+            "Captain orders must be scoped to the server-issued offeredCaptainId",
+            captainRepositorySource.contains(".whereEqualTo(\"offeredCaptainId\"")
+        )
+        assertFalse(
+            "Captain orders must never be queried through the full eligibleCaptainIds list",
+            captainRepositorySource.contains(".whereArrayContains(\"eligibleCaptainIds\"")
+        )
         val filesCallingDownloadUrl = mainSrcDir.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filter { file ->
