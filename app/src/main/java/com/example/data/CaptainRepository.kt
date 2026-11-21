@@ -804,7 +804,7 @@ class CaptainRepository(
     }
 
     /**
-     * Dedicated query for orders filtered strictly by status == 'pending'.
+     * Dedicated query for pending offers addressed specifically to this captain UID.
      * Logs query execution and all matched documents for verification.
      */
     suspend fun queryPendingOrdersFromFirestore(): Result<List<OrderEntity>> {
@@ -829,7 +829,7 @@ class CaptainRepository(
                 .await()
 
             val docs = querySnapshot.documents
-            Log.i("CaptainRepository", "[FirestoreQuery] Query 'status == pending' returned ${docs.size} documents (source=${if (querySnapshot.metadata.isFromCache) "cache" else "server"})")
+            Log.i("CaptainRepository", "[FirestoreQuery] Query 'status == pending AND offeredCaptainId == current captain' returned ${docs.size} documents (source=${if (querySnapshot.metadata.isFromCache) "cache" else "server"})")
 
             val pendingList = mutableListOf<OrderEntity>()
             for (doc in docs) {
@@ -856,7 +856,7 @@ class CaptainRepository(
     }
 
     /**
-     * One-time sync of orders from Firestore, executing and logging queries for status == 'pending'
+     * One-time sync of orders from Firestore, executing and logging private offeredCaptainId queries
      * as well as syncing captain's active orders into Room database.
      */
     suspend fun syncOrdersFromFirestore(): Result<Int> {
