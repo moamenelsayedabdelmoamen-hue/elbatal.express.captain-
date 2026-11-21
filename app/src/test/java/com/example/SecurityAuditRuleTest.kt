@@ -451,7 +451,6 @@ class SecurityAuditRuleTest {
         )
         val uri = createSampleJpeg("audit_img")
 
-        // Disallowed receipt statuses (early, en_route, closed) MUST all be rejected
         val disallowedStatuses = listOf(
             OrderStatus.PENDING,
             OrderStatus.ACCEPTED,
@@ -462,48 +461,76 @@ class SecurityAuditRuleTest {
             OrderStatus.EXPIRED
         )
         for (badStatus in disallowedStatuses) {
-            val res = storageRepo.uploadOrderReceiptImage(
+            val result = storageRepo.uploadOrderReceiptImage(
                 orderId = "ORD_1",
                 assignedCaptainId = "captain_1",
                 orderStatus = badStatus,
                 imageUri = uri
             )
-            assertTrue("Status $badStatus MUST be blocked from receipt upload", res.isFailure)
-            assertEquals(UploadErrorKind.ORDER_CLOSED, (res.exceptionOrNull() as? StorageUploadException)?.kind)
+            assertTrue("Status $badStatus MUST be blocked from receipt upload", result.isFailure)
+            assertEquals(
+                UploadErrorKind.ORDER_CLOSED,
+                (result.exceptionOrNull() as? StorageUploadException)?.kind
+            )
         }
 
-        // Allowed receipt statuses MUST succeed
-        for (goodStatus in listOf(OrderStatus.PICKED_UP, OrderStatus.MERCHANT_REJECTED, OrderStatus.AWAITING_MERCHANT_CONFIRMATION)) {
-            val res = storageRepo.uploadOrderReceiptImage(
+        for (goodStatus in listOf(
+            OrderStatus.PICKED_UP,
+            OrderStatus.MERCHANT_REJECTED,
+            OrderStatus.AWAITING_MERCHANT_CONFIRMATION
+        )) {
+            val result = storageRepo.uploadOrderReceiptImage(
                 orderId = "ORD_1",
                 assignedCaptainId = "captain_1",
                 orderStatus = goodStatus,
                 imageUri = uri
             )
-            assertTrue("Explicitly allowed status $goodStatus must succeed", res.isSuccess)
+            assertTrue("Explicitly allowed status $goodStatus must succeed", result.isSuccess)
         }
 
-        // Upload ID front to populate UID-scoped private cache, then verify clearSessionMemoryCache wipes disk cache
         assertTrue(storageRepo.uploadCaptainIdFrontImage("captain_1", uri).isSuccess)
         val cacheRoot = File(context.cacheDir, "fb_storage_cache")
-        assertTrue("Private cache folder should exist while session is active", cacheRoot.exists() && cacheRoot.walkTopDown().any { it.isFile })
+        assertTrue(
+            "Private cache folder should exist while session is active",
+            cacheRoot.exists() && cacheRoot.walkTopDown().any { it.isFile }
+        )
         storageRepo.clearSessionMemoryCache()
-        assertFalse("Logout clearSessionMemoryCache MUST wipe private ID/receipt cache from disk", cacheRoot.exists())
+        assertFalse(
+            "Logout clearSessionMemoryCache MUST wipe private ID/receipt cache from disk",
+            cacheRoot.exists()
+        )
 
-        // Verify google-services.json targets el-batal-express-956ae
+        // Validate the real Firebase configuration and the Google Services resources
+        // generated from it by the dedicated Gradle task in CI.
         val googleServicesFile = listOf(
-            File("google-services.json"),
             File("app/google-services.json"),
+            File("google-services.json"),
             File("../app/google-services.json")
-        ).firstOrNull { it.exists() }
-        assertNotNull("google-services.json must exist", googleServicesFile)
-        val gsJson = JSONObject(googleServicesFile!!.readText())
-        val projectInfo = gsJson.getJSONObject("project_info")
-        assertEquals("el-batal-express-956ae", projectInfo.getString("project_id"))
-        assertEquals("el-batal-express-956ae.firebasestorage.app", projectInfo.getString("storage_bucket"))
+        ).firstOrNull { it.isFile }
+        assertNotNull(
+            "Android build must provide a validated google-services.json",
+            googleServicesFile
+        )
+        val projectIdResource = context.resources.getIdentifier(
+            "project_id", "string", context.packageName
+        ).takeIf { it != 0 } ?: context.resources.getIdentifier(
+            "project_id", "string", "com.example"
+        )
+        val storageBucketResource = context.resources.getIdentifier(
+            "google_storage_bucket", "string", context.packageName
+        ).takeIf { it != 0 } ?: context.resources.getIdentifier(
+            "google_storage_bucket", "string", "com.example"
+        )
+        assertTrue("Google Services plugin must generate project_id", projectIdResource != 0)
+        assertTrue("Google Services plugin must generate google_storage_bucket", storageBucketResource != 0)
+        assertEquals("el-batal-express-956ae", context.getString(projectIdResource))
+        assertEquals(
+            "el-batal-express-956ae.firebasestorage.app",
+            context.getString(storageBucketResource)
+        )
 
-        // Verify zero public downloadUrl calls in production Kotlin source files
-        val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java")).first { it.exists() }
+        val mainSrcDir = listOf(File("src/main/java"), File("app/src/main/java"))
+            .first { it.exists() }
         val filesCallingDownloadUrl = mainSrcDir.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filter { file ->

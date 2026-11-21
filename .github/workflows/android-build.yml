@@ -32,11 +32,74 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
+      - name: Configure and validate Firebase Android app
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s app/google-services.json ]; then
+            if [ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+              echo "::error::Missing Firebase Android configuration. Add the base64-encoded Firebase google-services.json as repository secret GOOGLE_SERVICES_JSON_BASE64."
+              exit 1
+            fi
+            printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > app/google-services.json
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          config_path = Path("app/google-services.json")
+          try:
+              config = json.loads(config_path.read_text(encoding="utf-8"))
+          except Exception as exc:
+              raise SystemExit(f"Invalid app/google-services.json: {exc}")
+
+          project = config.get("project_info", {})
+          if project.get("project_id") != "el-batal-express-956ae":
+              raise SystemExit("Firebase project_id must be el-batal-express-956ae")
+          if project.get("storage_bucket") != "el-batal-express-956ae.firebasestorage.app":
+              raise SystemExit("Firebase storage_bucket must be el-batal-express-956ae.firebasestorage.app")
+
+          expected_package = "com.aistudio.elbatalexpresscaptain.captain"
+          clients = config.get("client", [])
+          matching = [
+              item for item in clients
+              if item.get("client_info", {}).get("android_client_info", {}).get("package_name") == expected_package
+          ]
+          if not matching:
+              raise SystemExit(f"google-services.json has no Android client for {expected_package}")
+          app_id = matching[0].get("client_info", {}).get("mobilesdk_app_id", "")
+          if ":android:" not in app_id:
+              raise SystemExit("The matching Firebase client is not an Android Firebase app registration")
+          print("Firebase Android configuration validated for the production project and applicationId.")
+          PY
       - name: Generate CI debug keystore
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
       - name: Run Captain unit tests
-        run: gradle :app:testDebugUnitTest
+        run: gradle :app:processDebugGoogleServices :app:testDebugUnitTest
+      - name: Print unit test failure details
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          reports = glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")
+          if not reports:
+              print("No JUnit XML reports were produced.")
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.findall(".//testcase"):
+                  failure = case.find("failure")
+                  if failure is None:
+                      failure = case.find("error")
+                  if failure is not None:
+                      print(f"FAILED: {case.get('classname')} > {case.get('name')}")
+                      print(failure.get("message", ""))
+                      print(failure.text or "")
+          PY
       - name: Build Captain debug APK
         run: gradle :app:assembleDebug
       - uses: actions/upload-artifact@v4

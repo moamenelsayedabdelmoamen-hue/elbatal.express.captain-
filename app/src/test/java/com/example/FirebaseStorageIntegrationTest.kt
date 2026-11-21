@@ -60,7 +60,15 @@ class FirebaseStorageIntegrationTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         tempRootDir = File(context.cacheDir, "test_storage_${System.nanoTime()}").apply { mkdirs() }
-        dbFile = File(tempRootDir, "captain_test.db")
+        // Room.databaseBuilder expects a database NAME, not an arbitrary absolute path.
+        // Keep the database in the app's managed databases directory so Android/Robolectric
+        // can create the SQLite file and its WAL/SHM companions reliably.
+        dbFile = context.getDatabasePath("captain_test_${System.nanoTime()}.db")
+        dbFile.parentFile?.let { parent ->
+            check(parent.exists() || parent.mkdirs()) {
+                "Unable to create Room test database directory: ${parent.absolutePath}"
+            }
+        }
         // Clear any previous UID cache in context.cacheDir
         File(context.cacheDir, "fb_storage_cache").deleteRecursively()
 
@@ -75,12 +83,16 @@ class FirebaseStorageIntegrationTest {
     fun tearDown() {
         database?.close()
         database = null
+        runCatching { context.deleteDatabase(dbFile.name) }
+        runCatching { dbFile.delete() }
+        runCatching { File(dbFile.absolutePath + "-wal").delete() }
+        runCatching { File(dbFile.absolutePath + "-shm").delete() }
         tempRootDir.deleteRecursively()
         File(context.cacheDir, "fb_storage_cache").deleteRecursively()
     }
 
     private fun openPersistentRoomDb(): AppDatabase {
-        return Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
+        return Room.databaseBuilder(context, AppDatabase::class.java, dbFile.name)
             .allowMainThreadQueries()
             .fallbackToDestructiveMigration()
             .build()

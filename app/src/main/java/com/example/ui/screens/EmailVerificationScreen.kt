@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -198,7 +199,8 @@ fun EmailVerificationScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         ),
-                        color = HeroYellow
+                        color = HeroYellow,
+                        modifier = Modifier.testTag("verify_email_text")
                     )
                 }
             }
@@ -279,7 +281,7 @@ fun EmailVerificationScreen(
                 statusMessage?.let { msg ->
                     Spacer(modifier = Modifier.height(16.dp))
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().testTag("verify_status_banner"),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isStatusSuccess) StatusOnlineGreen.copy(alpha = 0.15f) else ExpressRed.copy(alpha = 0.15f)
@@ -380,6 +382,7 @@ fun EmailVerificationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
+                    .testTag("verify_check_button")
             ) {
                 if (isChecking) {
                     CircularProgressIndicator(
@@ -434,6 +437,7 @@ fun EmailVerificationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
+                    .testTag("verify_resend_button")
             ) {
                 if (isResending) {
                     CircularProgressIndicator(

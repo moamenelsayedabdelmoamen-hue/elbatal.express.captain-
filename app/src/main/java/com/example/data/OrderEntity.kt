@@ -17,6 +17,22 @@ enum class OrderStatus {
     EXPIRED
 }
 
+/**
+ * Keeps the merchant logo reference usable by both legacy URL-based profiles and
+ * Firebase Storage-backed profiles. URLs take precedence; otherwise the Storage
+ * object path is retained so the authenticated Captain app can resolve it safely.
+ */
+fun resolveMerchantImageReference(storeImage: String?, storeImagePath: String?): String {
+    val directReference = storeImage?.trim().orEmpty()
+    val storagePath = storeImagePath?.trim().orEmpty()
+    return when {
+        directReference.startsWith("https://", ignoreCase = true) ||
+            directReference.startsWith("http://", ignoreCase = true) -> directReference
+        storagePath.isNotBlank() -> storagePath
+        else -> directReference
+    }
+}
+
 @Entity(tableName = "orders")
 data class OrderEntity(
     @PrimaryKey(autoGenerate = true)
